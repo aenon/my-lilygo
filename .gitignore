@@ -1,0 +1,17 @@
+.pio/
+.pioenvs/
+.piolibdeps/
+.vscode/
+.idea/
+.DS_Store
+*.swp
+build/
+
+# Vendor LilyGo repo is fetched on demand by scripts/bootstrap-vendor.sh —
+# never commit it.
+vendor/
+
+# Per-app secrets (WiFi creds, API keys, etc.).  Only the templated
+# secrets.example.h files are committed.
+secrets.h
+**/secrets.h

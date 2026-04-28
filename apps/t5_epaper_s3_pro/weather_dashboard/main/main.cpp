@@ -34,13 +34,14 @@
 //   - api.open-meteo.com  -> current conditions, hourly + daily forecast
 //
 // Refresh policy:
-//   - Screen redraw  : every 60 s   (clock keeps moving even if API is stale)
-//   - Weather fetch  : every 15 min (Open-Meteo updates only every ~15 min)
-//   - Location lookup: once per boot
+//   - Screen redraw  : every 60 s (clock + footer; full weather redraw)
+//   - Weather fetch  : on success -> top of next hour; on failure -> +60 s
+//   - Location lookup: once per boot (until geolocate succeeds)
 
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <HTTPClient.h>
+#include <cstring>
 #include <WiFi.h>
 #include <Wire.h>
 #include <time.h>
@@ -256,6 +257,17 @@ void formatNextWxAttempt(char *out, size_t outLen) {
 // ---------------------------------------------------------------------------
 // EPD bring-up
 // ---------------------------------------------------------------------------
+// epd_hl_update_screen() applies a diff from back_fb -> front_fb.  After a
+// hardware epd_clear() the panel is physically white, but back_fb still
+// holds the previous image — the next diff/update chases the wrong baseline,
+// which shows up as progressive ghosting and "missing" text until something
+// recovers.  Reset BOTH framebuffers whenever we clear the panel.
+void hlSyncFramebuffersToWhite(EpdiyHighlevelState *hl) {
+    const int fbBytes = epd_width() / 2 * epd_height();
+    std::memset(hl->front_fb, 0xFF, fbBytes);
+    std::memset(hl->back_fb, 0xFF, fbBytes);
+}
+
 void initEpd() {
     epd_init(&epd_board_v7, &ED047TC1, EPD_LUT_64K);
     epd_set_vcom(kVcomMillivolts);
@@ -452,37 +464,55 @@ bool fetchWeather() {
         return false;
     }
 
-    // ---- current ----
-    {
-        JsonObject c = doc["current"];
-        WeatherSnapshot tmp = g_weather;  // start from existing so partial fail is graceful
-        tmp.current.valid       = true;
-        tmp.current.temp        = c["temperature_2m"]          | 0.0f;
-        tmp.current.feelsLike   = c["apparent_temperature"]    | 0.0f;
-        tmp.current.humidity    = c["relative_humidity_2m"]    | 0.0f;
-        tmp.current.windSpeed   = c["wind_speed_10m"]          | 0.0f;
-        tmp.current.windDirDeg  = c["wind_direction_10m"]      | 0.0f;
-        tmp.current.precip      = c["precipitation"]           | 0.0f;
-        tmp.current.uvIndex     = c["uv_index"]                | 0.0f;
-        tmp.current.weatherCode = c["weather_code"]            | -1;
-        tmp.current.isDay       = (c["is_day"] | 1) != 0;
-        g_weather = tmp;
+    if (!doc["current"].is<JsonObject>()) {
+        Serial.println("[wx] missing \"current\" object");
+        return false;
+    }
+    JsonObject c = doc["current"];
+
+    if (!doc["hourly"].is<JsonObject>() || !doc["daily"].is<JsonObject>()) {
+        Serial.println("[wx] missing hourly/daily objects");
+        return false;
+    }
+    JsonArray times = doc["hourly"]["time"];
+    JsonArray dTime = doc["daily"]["time"];
+    if (times.size() == 0 || dTime.size() == 0) {
+        Serial.printf("[wx] empty time series  hourly=%u daily=%u\n",
+                      (unsigned)times.size(), (unsigned)dTime.size());
+        return false;
     }
 
-    // ---- hourly: pick the next kHourlyCount entries from "now" ----
+    // Parse into a fresh snapshot; assign g_weather only when complete so we
+    // never leave a half-updated model on bad JSON.
+    WeatherSnapshot snap;
+
+    snap.current.valid       = true;
+    snap.current.temp        = c["temperature_2m"]       | 0.0f;
+    snap.current.feelsLike   = c["apparent_temperature"] | 0.0f;
+    snap.current.humidity    = c["relative_humidity_2m"]  | 0.0f;
+    snap.current.windSpeed   = c["wind_speed_10m"]       | 0.0f;
+    snap.current.windDirDeg  = c["wind_direction_10m"]   | 0.0f;
+    snap.current.precip      = c["precipitation"]         | 0.0f;
+    snap.current.uvIndex     = c["uv_index"]              | 0.0f;
+    snap.current.weatherCode = c["weather_code"]          | -1;
+    snap.current.isDay       = (c["is_day"] | 1) != 0;
+
+    // Hourly: next kHourlyCount slots from "now"
     {
-        JsonArray times    = doc["hourly"]["time"];
-        JsonArray temps    = doc["hourly"]["temperature_2m"];
-        JsonArray codes    = doc["hourly"]["weather_code"];
-        JsonArray pops     = doc["hourly"]["precipitation_probability"];
-        time_t nowEpoch    = time(nullptr);
-        int startIdx = 0;
+        JsonArray temps = doc["hourly"]["temperature_2m"];
+        JsonArray codes = doc["hourly"]["weather_code"];
+        JsonArray pops  = doc["hourly"]["precipitation_probability"];
+        time_t nowEpoch = time(nullptr);
+        int startIdx    = 0;
         for (size_t i = 0; i < times.size(); ++i) {
             time_t t = times[i].as<long long>();
-            if (t >= nowEpoch) { startIdx = (int)i; break; }
+            if (t >= nowEpoch) {
+                startIdx = (int)i;
+                break;
+            }
         }
         for (int i = 0; i < kHourlyCount; ++i) {
-            int j = startIdx + i;
+            int     j = startIdx + i;
             HourlyEntry e;
             if (j < (int)times.size()) {
                 e.epoch       = (time_t)(times[j].as<long long>());
@@ -490,19 +520,18 @@ bool fetchWeather() {
                 e.weatherCode = codes[j] | -1;
                 e.precipPct   = pops[j]  | 0;
             }
-            g_weather.hourly[i] = e;
+            snap.hourly[i] = e;
         }
     }
 
-    // ---- daily ----
+    // Daily
     {
-        JsonArray dTime = doc["daily"]["time"];
-        JsonArray dHi   = doc["daily"]["temperature_2m_max"];
-        JsonArray dLo   = doc["daily"]["temperature_2m_min"];
-        JsonArray dWc   = doc["daily"]["weather_code"];
-        JsonArray dSr   = doc["daily"]["sunrise"];
-        JsonArray dSs   = doc["daily"]["sunset"];
-        JsonArray dPs   = doc["daily"]["precipitation_sum"];
+        JsonArray dHi = doc["daily"]["temperature_2m_max"];
+        JsonArray dLo = doc["daily"]["temperature_2m_min"];
+        JsonArray dWc = doc["daily"]["weather_code"];
+        JsonArray dSr = doc["daily"]["sunrise"];
+        JsonArray dSs = doc["daily"]["sunset"];
+        JsonArray dPs = doc["daily"]["precipitation_sum"];
         for (int i = 0; i < kDailyCount; ++i) {
             DailyEntry e;
             if ((size_t)i < dTime.size()) {
@@ -514,12 +543,14 @@ bool fetchWeather() {
                 e.sunset      = (time_t)(dSs[i].as<long long>());
                 e.precipSum   = dPs[i] | 0.0f;
             }
-            g_weather.daily[i] = e;
+            snap.daily[i] = e;
         }
     }
 
-    g_weather.ok        = true;
-    g_weather.fetchedMs = millis();
+    snap.ok        = true;
+    snap.fetchedMs = millis();
+    g_weather      = snap;
+
     Serial.printf("[wx] OK  now=%.0f%s feels=%.0f code=%d hourly=%d daily=%d\n",
                   g_weather.current.temp,
                   String(WEATHER_TEMP_UNIT).startsWith("c") ? "C" : "F",
@@ -576,8 +607,10 @@ void renderDashboard() {
         epd_poweron();
         epd_clear();
         epd_poweroff();
+        hlSyncFramebuffersToWhite(&g_hl);
+    } else {
+        epd_hl_set_all_white(&g_hl);
     }
-    epd_hl_set_all_white(&g_hl);
 
     char buf[160];
 

@@ -793,10 +793,12 @@ void setup() {
     Serial.println();
     Serial.println("=== T5 E-Paper S3 Pro - Weather Dashboard ===");
 
-    // Wire.begin() before epdiy, then BQ27220.  See portrait_dashboard.
+    // Vendor factory brings up BQ27220 *before* epdiy: epd_board_v7 installs
+    // ESP-IDF I2C on the same bus/pins; init'ing the gauge after that breaks
+    // Arduino Wire and you'll get "Battery: n/a".  Order: Wire → fuel gauge → EPD.
     Wire.begin(kI2cSda, kI2cScl);
-    initEpd();
     initBattery();
+    initEpd();
     initWifi();
     trySyncNtp(10000);
 

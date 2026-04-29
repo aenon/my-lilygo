@@ -375,19 +375,17 @@ void setup() {
     Serial.println();
     Serial.println("=== T5 E-Paper S3 Pro - Portrait Dashboard ===");
 
-    // ORDER MATTERS:
-    //   1. Wire.begin() first.  epdiy v7's epd_init() installs the ESP-IDF
-    //      I2C driver internally; if Wire isn't already up at that point,
-    //      our later Wire.begin() will collide and leave Wire's TX buffer
-    //      NULL — which silently breaks every subsequent BQ27220 / XL9555
-    //      transaction.  See vendor's display_test for the same pattern.
-    //   2. EPD init (ED047TC1 + TPS65185 wake).
-    //   3. BQ27220 fuel gauge over Wire (which is now safely shared).
+    // ORDER MATTERS (matches vendor factory: examples/factory/main.cpp):
+    //   1. Wire.begin() on SDA/SCL.
+    //   2. BQ27220 while Wire exclusively owns the bus — *before* epd_init().
+    //      epd_board_v7 calls i2c_driver_install on the same port; bringing
+    //      the gauge up after that often leaves Wire unusable ("n/a" SoC).
+    //   3. EPD init (ED047TC1 + TPS65185 via PCA9555 on that bus).
     //   4. WiFi + NTP.
     Wire.begin(kI2cSda, kI2cScl);
 
-    initEpd();
     initBattery();
+    initEpd();
     initWifi();
     trySyncNtp(10000);
 

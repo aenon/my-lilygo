@@ -52,6 +52,7 @@
 #include "firasans_12.h"
 #include "firasans_20.h"
 #include "secrets.h"
+#include "../../../_shared/bq27220_idf_read.h"
 
 namespace {
 
@@ -70,6 +71,7 @@ constexpr const char *kNtpServer1     = "pool.ntp.org";
 constexpr const char *kNtpServer2     = "time.google.com";
 constexpr int      kHourlyCount       = 6;
 constexpr int      kDailyCount        = 5;
+constexpr i2c_port_t kBattI2cPort     = I2C_NUM_0;
 
 // ---------------------------------------------------------------------------
 // Data model
@@ -728,13 +730,18 @@ void renderDashboard() {
         drawCenteredText(&FiraSans_12, 870, W / 2, buf);
     }
 
+    uint16_t batMv = 0, batSoc = 0;
+    bool     batChg = false;
+    bool     batOk  = false;
     if (g_bqOk) {
-        uint16_t mv  = g_bq.getVoltage();
-        uint16_t soc = g_bq.getStateOfCharge();
-        bool     chg = g_bq.getIsCharging();
-        snprintf(buf, sizeof(buf), "%.2f V  %u%%  %s",
-                 mv / 1000.0f, (unsigned)soc,
-                 chg ? "charging" : "discharging");
+        batOk = bq27220_idf_read_live(kBattI2cPort, &batMv, &batSoc, &batChg);
+        if (batOk) {
+            snprintf(buf, sizeof(buf), "%.2f V  %u%%  %s",
+                     batMv / 1000.0f, (unsigned)batSoc,
+                     batChg ? "charging" : "discharging");
+        } else {
+            snprintf(buf, sizeof(buf), "Battery: read error");
+        }
     } else {
         snprintf(buf, sizeof(buf), "Battery: n/a (no BQ27220)");
     }
@@ -771,13 +778,13 @@ void renderDashboard() {
     epd_poweroff();
 
     char batLog[8];
-    if (g_bqOk) {
-        snprintf(batLog, sizeof(batLog), "%u", (unsigned)g_bq.getStateOfCharge());
+    if (batOk) {
+        snprintf(batLog, sizeof(batLog), "%u%%", (unsigned)batSoc);
     } else {
-        snprintf(batLog, sizeof(batLog), "n/a");
+        snprintf(batLog, sizeof(batLog), "%s", g_bqOk ? "err" : "n/a");
     }
     Serial.printf(
-        "[render #%lu] wx=%d ageMs=%lu wifi=%d ntp=%d bat=%s%% heap=%u\n",
+        "[render #%lu] wx=%d ageMs=%lu wifi=%d ntp=%d bat=%s heap=%u\n",
         (unsigned long)g_renderCount, g_weather.ok, (unsigned long)ageMs,
         WiFi.status() == WL_CONNECTED, g_haveNtpSynced, batLog,
         ESP.getFreeHeap() / 1024U);

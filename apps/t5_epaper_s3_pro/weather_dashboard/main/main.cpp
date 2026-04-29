@@ -47,6 +47,7 @@
 #include <time.h>
 
 #include <epdiy.h>
+#include "bq27220.h"
 
 #include "firasans_12.h"
 #include "firasans_20.h"
@@ -116,6 +117,8 @@ struct WeatherSnapshot {
 // ---------------------------------------------------------------------------
 EpdiyHighlevelState g_hl;
 uint8_t            *g_fb         = nullptr;
+BQ27220             g_bq;
+bool                g_bqOk       = false;
 uint32_t            g_renderCount = 0;
 uint32_t            g_lastScreenMs   = 0;
 uint32_t            g_lastReconnectAttemptMs = 0;
@@ -282,6 +285,11 @@ void initEpd() {
     Serial.printf("[epd] %dx%d ready (inverted portrait)\n",
                   epd_rotated_display_width(),
                   epd_rotated_display_height());
+}
+
+void initBattery() {
+    g_bqOk = g_bq.init();
+    Serial.printf("[bat] BQ27220 %s\n", g_bqOk ? "ok" : "FAILED");
 }
 
 // ---------------------------------------------------------------------------
@@ -720,6 +728,18 @@ void renderDashboard() {
         drawCenteredText(&FiraSans_12, 870, W / 2, buf);
     }
 
+    if (g_bqOk) {
+        uint16_t mv  = g_bq.getVoltage();
+        uint16_t soc = g_bq.getStateOfCharge();
+        bool     chg = g_bq.getIsCharging();
+        snprintf(buf, sizeof(buf), "%.2f V  %u%%  %s",
+                 mv / 1000.0f, (unsigned)soc,
+                 chg ? "charging" : "discharging");
+    } else {
+        snprintf(buf, sizeof(buf), "Battery: n/a (no BQ27220)");
+    }
+    drawCenteredText(&FiraSans_12, 895, W / 2, buf);
+
     const char *wifiTag =
         WiFi.status() == WL_CONNECTED ? "wifi:OK"
         : g_wasConnected               ? "wifi:RECONNECTING"
@@ -750,11 +770,17 @@ void renderDashboard() {
     epd_hl_update_screen(&g_hl, MODE_GC16, temp);
     epd_poweroff();
 
-    Serial.printf("[render #%lu] wx=%d ageMs=%lu wifi=%d ntp=%d heap=%u\n",
-                  (unsigned long)g_renderCount, g_weather.ok,
-                  (unsigned long)ageMs,
-                  WiFi.status() == WL_CONNECTED, g_haveNtpSynced,
-                  ESP.getFreeHeap() / 1024U);
+    char batLog[8];
+    if (g_bqOk) {
+        snprintf(batLog, sizeof(batLog), "%u", (unsigned)g_bq.getStateOfCharge());
+    } else {
+        snprintf(batLog, sizeof(batLog), "n/a");
+    }
+    Serial.printf(
+        "[render #%lu] wx=%d ageMs=%lu wifi=%d ntp=%d bat=%s%% heap=%u\n",
+        (unsigned long)g_renderCount, g_weather.ok, (unsigned long)ageMs,
+        WiFi.status() == WL_CONNECTED, g_haveNtpSynced, batLog,
+        ESP.getFreeHeap() / 1024U);
 }
 
 }  // namespace
@@ -767,9 +793,10 @@ void setup() {
     Serial.println();
     Serial.println("=== T5 E-Paper S3 Pro - Weather Dashboard ===");
 
-    // Wire.begin() before epdiy.  See portrait_dashboard for details.
+    // Wire.begin() before epdiy, then BQ27220.  See portrait_dashboard.
     Wire.begin(kI2cSda, kI2cScl);
     initEpd();
+    initBattery();
     initWifi();
     trySyncNtp(10000);
 

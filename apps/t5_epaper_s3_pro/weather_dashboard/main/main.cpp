@@ -47,10 +47,12 @@
 #include <time.h>
 
 #include <epdiy.h>
+#include "bq27220.h"
 
 #include "firasans_12.h"
 #include "firasans_20.h"
 #include "secrets.h"
+#include "../../../_shared/bq27220_idf_read.h"
 
 namespace {
 
@@ -69,6 +71,7 @@ constexpr const char *kNtpServer1     = "pool.ntp.org";
 constexpr const char *kNtpServer2     = "time.google.com";
 constexpr int      kHourlyCount       = 6;
 constexpr int      kDailyCount        = 5;
+constexpr i2c_port_t kBattI2cPort     = I2C_NUM_0;
 
 // ---------------------------------------------------------------------------
 // Data model
@@ -116,6 +119,8 @@ struct WeatherSnapshot {
 // ---------------------------------------------------------------------------
 EpdiyHighlevelState g_hl;
 uint8_t            *g_fb         = nullptr;
+BQ27220             g_bq;
+bool                g_bqOk       = false;
 uint32_t            g_renderCount = 0;
 uint32_t            g_lastScreenMs   = 0;
 uint32_t            g_lastReconnectAttemptMs = 0;
@@ -282,6 +287,11 @@ void initEpd() {
     Serial.printf("[epd] %dx%d ready (inverted portrait)\n",
                   epd_rotated_display_width(),
                   epd_rotated_display_height());
+}
+
+void initBattery() {
+    g_bqOk = g_bq.init();
+    Serial.printf("[bat] BQ27220 %s\n", g_bqOk ? "ok" : "FAILED");
 }
 
 // ---------------------------------------------------------------------------
@@ -720,6 +730,23 @@ void renderDashboard() {
         drawCenteredText(&FiraSans_12, 870, W / 2, buf);
     }
 
+    uint16_t batMv = 0, batSoc = 0;
+    bool     batChg = false;
+    bool     batOk  = false;
+    if (g_bqOk) {
+        batOk = bq27220_idf_read_live(kBattI2cPort, &batMv, &batSoc, &batChg);
+        if (batOk) {
+            snprintf(buf, sizeof(buf), "%.2f V  %u%%  %s",
+                     batMv / 1000.0f, (unsigned)batSoc,
+                     batChg ? "charging" : "discharging");
+        } else {
+            snprintf(buf, sizeof(buf), "Battery: read error");
+        }
+    } else {
+        snprintf(buf, sizeof(buf), "Battery: n/a (no BQ27220)");
+    }
+    drawCenteredText(&FiraSans_12, 895, W / 2, buf);
+
     const char *wifiTag =
         WiFi.status() == WL_CONNECTED ? "wifi:OK"
         : g_wasConnected               ? "wifi:RECONNECTING"
@@ -750,11 +777,17 @@ void renderDashboard() {
     epd_hl_update_screen(&g_hl, MODE_GC16, temp);
     epd_poweroff();
 
-    Serial.printf("[render #%lu] wx=%d ageMs=%lu wifi=%d ntp=%d heap=%u\n",
-                  (unsigned long)g_renderCount, g_weather.ok,
-                  (unsigned long)ageMs,
-                  WiFi.status() == WL_CONNECTED, g_haveNtpSynced,
-                  ESP.getFreeHeap() / 1024U);
+    char batLog[8];
+    if (batOk) {
+        snprintf(batLog, sizeof(batLog), "%u%%", (unsigned)batSoc);
+    } else {
+        snprintf(batLog, sizeof(batLog), "%s", g_bqOk ? "err" : "n/a");
+    }
+    Serial.printf(
+        "[render #%lu] wx=%d ageMs=%lu wifi=%d ntp=%d bat=%s heap=%u\n",
+        (unsigned long)g_renderCount, g_weather.ok, (unsigned long)ageMs,
+        WiFi.status() == WL_CONNECTED, g_haveNtpSynced, batLog,
+        ESP.getFreeHeap() / 1024U);
 }
 
 }  // namespace
@@ -767,8 +800,11 @@ void setup() {
     Serial.println();
     Serial.println("=== T5 E-Paper S3 Pro - Weather Dashboard ===");
 
-    // Wire.begin() before epdiy.  See portrait_dashboard for details.
+    // Vendor factory brings up BQ27220 *before* epdiy: epd_board_v7 installs
+    // ESP-IDF I2C on the same bus/pins; init'ing the gauge after that breaks
+    // Arduino Wire and you'll get "Battery: n/a".  Order: Wire → fuel gauge → EPD.
     Wire.begin(kI2cSda, kI2cScl);
+    initBattery();
     initEpd();
     initWifi();
     trySyncNtp(10000);

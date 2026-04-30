@@ -1,0 +1,16 @@
+---
+description: Follow AGENTS.md for branch, worktree, and PR workflow
+alwaysApply: true
+---
+
+# Project agents and worktrees
+
+Read and follow the repository root **`AGENTS.md`**.
+
+Summary for agents:
+
+- **One branch** per unit of work; **one worktree** under `.worktrees/` (branch name with `/` → `-`); **one PR** per branch when ready.
+- Do not mix unrelated changes on the same branch.
+- Prefer creating a new branch and a new path under `.worktrees/` instead of reusing one branch for multiple features.
+
+If `AGENTS.md` and this rule disagree, **`AGENTS.md` wins** (update this rule if the process changes).

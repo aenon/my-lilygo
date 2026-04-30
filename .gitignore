@@ -7,6 +7,10 @@
 *.swp
 build/
 
+# Linked git worktrees (see AGENTS.md). Keep only this README tracked.
+.worktrees/*
+!.worktrees/README.md
+
 # Vendor LilyGo repo is fetched on demand by scripts/bootstrap-vendor.sh —
 # never commit it.
 vendor/

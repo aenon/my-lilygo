@@ -1,8 +1,27 @@
-# LilyGo T-Dongle S3 (K193) — display capabilities
+# LilyGo T-Dongle S3 (K193)
+
+## Apps
+
+### `ticker_clock_weather`
+
+Horizontal **marquee** on the 160×80 panel: **city**, **local time** (NTP), and **current temperature + short condition** from [Open-Meteo](https://open-meteo.com/) (location via [ip-api.com](http://ip-api.com/) — no API keys).
+
+```bash
+cp apps/t_dongle_s3/ticker_clock_weather/main/secrets.example.h \
+   apps/t_dongle_s3/ticker_clock_weather/main/secrets.h
+pio run -e t_dongle_s3 -t upload
+pio device monitor --rts 0 --dtr 0
+```
+
+Uses **TFT_eSPI** with LilyGO’s vendor `Setup47_ST7735` (`lib_extra_dirs = vendor/T-Dongle-S3/lib`). Weather refresh: ~every **hour** on success, **60 s** retry on failure (keeps HTTP and RAM light on a no-PSRAM board).
+
+---
+
+## Display capabilities
 
 Upstream hardware/UI reference: [Xinyuan-LilyGO/T-Dongle-S3](https://github.com/Xinyuan-LilyGO/T-Dongle-S3) (vendored under `vendor/T-Dongle-S3` after `./scripts/bootstrap-vendor.sh`).
 
-## Panel summary
+### Panel summary
 
 | Attribute | Detail |
 |-----------|--------|
@@ -14,7 +33,7 @@ Upstream hardware/UI reference: [Xinyuan-LilyGO/T-Dongle-S3](https://github.com/
 
 So on this small screen you are drawing into a **roughly thumbnail-sized** raster: about **12.8k pixels** (~25.6 KB for a full RGB565 framebuffer). There is **no PSRAM** on the base T-Dongle-S3 SKU (per LilyGO quick start), so keep full-screen buffers and UI complexity modest.
 
-## What you can display (practically)
+### What you can display (practically)
 
 1. **Full-screen bitmaps** — RGB565 buffers or embedded C arrays (`image.h`-style), pushed with `esp_lcd_panel_draw_bitmap` or `TFT_eSPI::pushImage`.
 2. **Solid fills and 2D primitives** — through **TFT_eSPI** (`fillScreen`, rectangles, lines, etc.) where enabled in the driver setup.
@@ -23,11 +42,11 @@ So on this small screen you are drawing into a **roughly thumbnail-sized** raste
 5. **Rich UI** — **LVGL 9** example under `examples/lvgl9/` (widgets, themes, at cost of flash/RAM).
 6. **Decoded images** — JPEG/etc. is possible via a decoder writing into RGB565, but you must manage RAM; many sketches use **preconverted** assets instead.
 
-## Other on-board outputs (not the LCD)
+### Other on-board outputs (not the LCD)
 
 - **APA102 RGB LED** — data/clock on **GPIO 40 / 39** in `TFT_eSPI.ino` (`LED_DI_PIN`, `LED_CI_PIN`); usable independently of the TFT for status/blink patterns.
 
-## SPI pinout (TFT, from vendor examples)
+### SPI pinout (TFT, from vendor examples)
 
 | Function | GPIO |
 |----------|------|
@@ -40,7 +59,7 @@ So on this small screen you are drawing into a **roughly thumbnail-sized** raste
 
 Exact numbers belong in driver init once; keep them in sync with the **Dual / Plus** quick starts if you use a variant board.
 
-## Where to look in `vendor/T-Dongle-S3/`
+### Where to look in `vendor/T-Dongle-S3/`
 
 | Example path | What it shows |
 |--------------|----------------|

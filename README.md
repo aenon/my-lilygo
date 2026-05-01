@@ -8,7 +8,7 @@ both ESP32-S3 based:
 | Device | Board ID | Notes |
 |---|---|---|
 | **T5 E-Paper S3 Pro** | `H752-02` | 4.7" 960×540 16-gray e-paper, 915 MHz LoRa, GPS/GLONASS/BeiDou |
-| **T-Dongle S3** | `K193` | USB-A stick, 160×80 ST7735; `ticker_clock_weather` |
+| **T-Dongle S3** | `K193` | USB-A stick, ST7735; weather ticker + portrait color clock |
 
 A third board, the **T-Echo (nRF52840)**, lives in the same drawer but runs
 [Meshtastic](https://meshtastic.org/) firmware unmodified — not built from
@@ -26,7 +26,8 @@ apps/
     portrait_dashboard/main/     # Portrait clock + WiFi + battery + system
     weather_dashboard/main/      # Portrait Open-Meteo weather dashboard
   t_dongle_s3/
-    ticker_clock_weather/main/    # WiFi: static clock + Open-Meteo weather (3 lines)
+    ticker_clock_weather/main/   # static weather + clock (landscape)
+    vertical_color_clock/main/   # portrait HH:MM + date, slow HSV colors
 scripts/
   bootstrap-vendor.sh            # clones LilyGo vendor repos into vendor/
 vendor/                          # gitignored — populated by bootstrap script
@@ -51,7 +52,10 @@ cd my-lilygo
 # Idempotent; re-run to pull updates.
 scripts/bootstrap-vendor.sh
 
-# For T-Dongle S3 ticker (after bootstrap):
+# For T-Dongle vertical color clock:
+cp apps/t_dongle_s3/vertical_color_clock/main/secrets.example.h \
+   apps/t_dongle_s3/vertical_color_clock/main/secrets.h
+$EDITOR apps/t_dongle_s3/vertical_color_clock/main/secrets.h
 cp apps/t_dongle_s3/ticker_clock_weather/main/secrets.example.h \
    apps/t_dongle_s3/ticker_clock_weather/main/secrets.h
 $EDITOR apps/t_dongle_s3/ticker_clock_weather/main/secrets.h
@@ -67,7 +71,8 @@ relevant `[env:*]` block of `platformio.ini`. Default env is
 pio run -e t5_epaper_s3_pro                    # compile
 pio run -e t_dongle_s3                        # compile T-Dongle ticker
 pio run -e t5_epaper_s3_pro -t upload        # flash T5 via USB-C
-pio run -e t_dongle_s3 -t upload             # flash dongle via USB-A
+pio run -e t_dongle_s3 -t upload             # flash dongle: weather ticker
+pio run -e t_dongle_s3_vertical_clock -t upload   # flash: portrait color clock
 pio device monitor --rts 0 --dtr 0
 ```
 

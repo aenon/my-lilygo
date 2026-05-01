@@ -15,6 +15,18 @@ pio device monitor --rts 0 --dtr 0
 
 Uses **TFT_eSPI** with LilyGO’s vendor `Setup47_ST7735` (`lib_extra_dirs = vendor/T-Dongle-S3/lib`). Weather refresh: ~every **hour** on success, **60 s** retry on failure (keeps HTTP and RAM light on a no-PSRAM board). The LCD is **not continuously repainted**; only full clears when the displayed lines change.
 
+### `vertical_color_clock`
+
+**Portrait** (80×160). **Hold with the USB-A plug at the bottom** — `kTftRotation` in `main.cpp` (default **2**) is chosen so the time reads upright in that pose. If yours is inverted, set `kTftRotation` to **0**.
+
+```bash
+cp apps/t_dongle_s3/vertical_color_clock/main/secrets.example.h \
+   apps/t_dongle_s3/vertical_color_clock/main/secrets.h
+pio run -e t_dongle_s3_vertical_clock -t upload
+```
+
+**Font:** **Font 4** for the time if it fits the **80 px** width; otherwise **font 2 at 2×** scale. The narrow panel cannot fit the largest numeric fonts on one line.
+
 ---
 
 ## Display capabilities

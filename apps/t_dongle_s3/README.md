@@ -17,7 +17,7 @@ Uses **TFT_eSPI** with LilyGO’s vendor `Setup47_ST7735` (`lib_extra_dirs = ven
 
 ### `vertical_color_clock`
 
-**Portrait** (80×160). **Hold with the USB-A plug at the bottom** — `kTftRotation` in `main.cpp` (default **2**) is chosen so the time reads upright in that pose. If yours is inverted, set `kTftRotation` to **0**.
+**Portrait** (80×160). **Hold with the USB-A plug at the bottom** — `kTftRotation` in `main.cpp` (default **2**). HH: and MM use the **largest TFT_eSPI font that fits** the 80px width and the space left above the date block (tries **6 → 7 → 4 → 2×2 → 2**). Date lines stay on font 2.
 
 ```bash
 cp apps/t_dongle_s3/vertical_color_clock/main/secrets.example.h \
@@ -25,7 +25,7 @@ cp apps/t_dongle_s3/vertical_color_clock/main/secrets.example.h \
 pio run -e t_dongle_s3_vertical_clock -t upload
 ```
 
-**Font:** **Font 4** for the time if it fits the **80 px** width; otherwise **font 2 at 2×** scale. The narrow panel cannot fit the largest numeric fonts on one line.
+If the face reads upside-down on your unit, set `kTftRotation` to **0** in `main.cpp`.
 
 ---
 

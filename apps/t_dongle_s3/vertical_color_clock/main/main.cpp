@@ -1,8 +1,8 @@
-// T-Dongle S3: portrait clock — large HH:MM, smaller "Thu April 30", colors drift
-// slowly in HSV. WiFi + NTP at boot (TZ from secrets.h).
+// T-Dongle S3: portrait clock — stacked face (22: / 52 / Thu / Apr / 30), HSV drift.
+// WiFi + NTP at boot (TZ from secrets.h).
 //
 // Physical habit: hold the stick with the **USB-A plug toward the bottom**.
-// See kTftRotation below (ST7735 / TFT_eSPI + LilyGO vendor Setup47).
+// See kTftRotation (ST7735 / TFT_eSPI + LilyGO vendor Setup47).
 
 #include <Arduino.h>
 #include <WiFi.h>
@@ -113,17 +113,69 @@ void syncNtpBlocking() {
     g_haveNtp = getLocalTime(&tm, 0);
 }
 
-void pickTimeFont(const char *hhmm) {
-    tft.setTextFont(4);
+// Biggest font for both HH: and MM that fits 80px width and leaves vertical
+// room for three date lines (font 2). Try in order: 6 → 7 → 4 → 2×2 → 2.
+void pickLargestTimeFont(const char *hourLine, const char *minLine, uint8_t *outFont,
+                        uint8_t *outSize) {
+    const int maxW = tft.width() - 4;
+    constexpr int padTop   = 2;
+    constexpr int gapHm    = 2;
+    constexpr int gapDates = 6;
+    constexpr int gapD     = 2;
+
+    static const struct {
+        uint8_t font;
+        uint8_t size;
+    } cand[] = {
+        {6, 1},
+        {7, 1},
+        {4, 1},
+        {2, 2},
+        {2, 1},
+    };
+
+    tft.setTextFont(2);
     tft.setTextSize(1);
-    if (tft.textWidth(hhmm) <= tft.width() - 6) {
+    const int fhDate = tft.fontHeight();
+
+    for (const auto &c : cand) {
+        tft.setTextFont(c.font);
+        tft.setTextSize(c.size);
+        if (tft.textWidth(hourLine) > maxW || tft.textWidth(minLine) > maxW) {
+            continue;
+        }
+        const int fhBig = tft.fontHeight();
+        const int used  = padTop + 2 * fhBig + gapHm + gapDates + 3 * fhDate + 2 * gapD;
+        if (used > tft.height() - 2) {
+            continue;
+        }
+        *outFont = c.font;
+        *outSize = c.size;
         return;
     }
+
     tft.setTextFont(2);
-    tft.setTextSize(2);
+    tft.setTextSize(1);
+    *outFont = 2;
+    *outSize = 1;
 }
 
-void paintPortrait(const char *hhmm, const char *dateLine) {
+// Face layout (top → bottom):
+//   "22:"  "52"     — large
+//   "Thu"  "Apr" "30" — small
+void paintPortrait(const struct tm &tm) {
+    char hourColon[8];
+    char minutes[8];
+    char dow[8];
+    char mon[8];
+    char day[8];
+
+    snprintf(hourColon, sizeof(hourColon), "%02d:", tm.tm_hour);
+    snprintf(minutes, sizeof(minutes), "%02d", tm.tm_min);
+    strftime(dow, sizeof(dow), "%a", &tm);
+    strftime(mon, sizeof(mon), "%b", &tm);
+    snprintf(day, sizeof(day), "%d", tm.tm_mday);
+
     float hue = fmodf(static_cast<float>(millis() % kHueCycleMs) * (360.0f / static_cast<float>(kHueCycleMs)),
                       360.0f);
     uint16_t fgBig   = hsvTo565(hue, 0.75f, 0.95f);
@@ -132,18 +184,41 @@ void paintPortrait(const char *hhmm, const char *dateLine) {
     tft.fillScreen(TFT_BLACK);
 
     const int cx = tft.width() / 2;
-    const int h  = tft.height();
 
     tft.setTextDatum(MC_DATUM);
 
-    pickTimeFont(hhmm);
+    uint8_t tFont, tSize;
+    pickLargestTimeFont(hourColon, minutes, &tFont, &tSize);
+    tft.setTextFont(tFont);
+    tft.setTextSize(tSize);
+    const int fhBig = tft.fontHeight();
+
+    constexpr int padTop   = 2;
+    constexpr int gapHm    = 2;
+    constexpr int gapDates = 6;
+    constexpr int gapD     = 2;
+
+    const int yHour = padTop + fhBig / 2;
+    const int yMin  = yHour + fhBig + gapHm;
+
     tft.setTextColor(fgBig, TFT_BLACK);
-    tft.drawString(hhmm, cx, h * 38 / 100);
+    tft.drawString(hourColon, cx, yHour);
+    tft.drawString(minutes, cx, yMin);
 
     tft.setTextFont(2);
     tft.setTextSize(1);
+    const int fhDate = tft.fontHeight();
+    const int yDates = yMin + fhBig / 2 + gapDates + fhDate / 2;
     tft.setTextColor(fgSmall, TFT_BLACK);
-    tft.drawString(dateLine, cx, h * 72 / 100);
+    tft.drawString(dow, cx, yDates);
+    tft.drawString(mon, cx, yDates + fhDate + gapD);
+    tft.drawString(day, cx, yDates + 2 * (fhDate + gapD));
+}
+
+void faceSignature(const struct tm &tm, char *out, size_t outLen) {
+    snprintf(out, outLen, "%02d:%02d|%d-%d-%d",
+             tm.tm_hour, tm.tm_min,
+             tm.tm_year, tm.tm_mon, tm.tm_mday);
 }
 
 void showNoTime() {
@@ -189,11 +264,7 @@ void setup() {
 
     struct tm tm;
     if (g_haveNtp && getLocalTime(&tm, 10)) {
-        char tbuf[8];
-        char dbuf[40];
-        strftime(tbuf, sizeof(tbuf), "%H:%M", &tm);
-        strftime(dbuf, sizeof(dbuf), "%a %B %d", &tm);
-        paintPortrait(tbuf, dbuf);
+        paintPortrait(tm);
     } else {
         showNoTime();
     }
@@ -201,8 +272,7 @@ void setup() {
 
 void loop() {
     static uint32_t s_lastColorPaint = 0;
-    static char     s_prevTime[8]  = "";
-    static char     s_prevDate[40] = "";
+    static char     s_prevSig[32]  = "";
 
     if (WiFi.status() == WL_CONNECTED && !g_haveNtp) {
         syncNtpBlocking();
@@ -215,26 +285,22 @@ void loop() {
         return;
     }
 
-    char tbuf[8];
-    char dbuf[40];
-    strftime(tbuf, sizeof(tbuf), "%H:%M", &tm);
-    strftime(dbuf, sizeof(dbuf), "%a %B %d", &tm);
+    char sig[32];
+    faceSignature(tm, sig, sizeof(sig));
 
-    bool timeTick = (strcmp(tbuf, s_prevTime) != 0) || (strcmp(dbuf, s_prevDate) != 0);
+    bool timeTick = (strcmp(sig, s_prevSig) != 0);
     uint32_t now  = millis();
     bool colorTick =
-        (now - s_lastColorPaint) >= kColorFrameMs;  // smooth slow hue drift
+        (now - s_lastColorPaint) >= kColorFrameMs;
 
     if (timeTick) {
-        strncpy(s_prevTime, tbuf, sizeof(s_prevTime));
-        s_prevTime[sizeof(s_prevTime) - 1] = '\0';
-        strncpy(s_prevDate, dbuf, sizeof(s_prevDate));
-        s_prevDate[sizeof(s_prevDate) - 1] = '\0';
+        strncpy(s_prevSig, sig, sizeof(s_prevSig));
+        s_prevSig[sizeof(s_prevSig) - 1] = '\0';
     }
 
     if (timeTick || colorTick) {
         s_lastColorPaint = now;
-        paintPortrait(tbuf, dbuf);
+        paintPortrait(tm);
     }
 
     delay(200);

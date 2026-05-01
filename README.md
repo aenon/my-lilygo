@@ -26,7 +26,7 @@ apps/
     portrait_dashboard/main/     # Portrait clock + WiFi + battery + system
     weather_dashboard/main/      # Portrait Open-Meteo weather dashboard
   t_dongle_s3/
-    ticker_clock_weather/main/    # WiFi: scrolling time + Open-Meteo weather ticker
+    ticker_clock_weather/main/    # WiFi: static clock + Open-Meteo weather (3 lines)
 scripts/
   bootstrap-vendor.sh            # clones LilyGo vendor repos into vendor/
 vendor/                          # gitignored — populated by bootstrap script

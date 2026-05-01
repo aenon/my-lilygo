@@ -4,7 +4,7 @@
 
 ### `ticker_clock_weather`
 
-Horizontal **marquee** on the 160×80 panel: **city**, **local time** (NTP), and **current temperature + short condition** from [Open-Meteo](https://open-meteo.com/) (location via [ip-api.com](http://ip-api.com/) — no API keys).
+**Static** three-line **160×80** layout: date/time, place name, temperature + short condition. Data from [Open-Meteo](https://open-meteo.com/) and [ip-api.com](http://ip-api.com/) (no API keys). The screen **redraws only when the text changes** (e.g. minute rollover or new weather), so it stays visually stable.
 
 ```bash
 cp apps/t_dongle_s3/ticker_clock_weather/main/secrets.example.h \
@@ -13,7 +13,7 @@ pio run -e t_dongle_s3 -t upload
 pio device monitor --rts 0 --dtr 0
 ```
 
-Uses **TFT_eSPI** with LilyGO’s vendor `Setup47_ST7735` (`lib_extra_dirs = vendor/T-Dongle-S3/lib`). Weather refresh: ~every **hour** on success, **60 s** retry on failure (keeps HTTP and RAM light on a no-PSRAM board).
+Uses **TFT_eSPI** with LilyGO’s vendor `Setup47_ST7735` (`lib_extra_dirs = vendor/T-Dongle-S3/lib`). Weather refresh: ~every **hour** on success, **60 s** retry on failure (keeps HTTP and RAM light on a no-PSRAM board). The LCD is **not continuously repainted**; only full clears when the displayed lines change.
 
 ---
 

@@ -1,4 +1,4 @@
-// T-Dongle S3: horizontal scrolling ticker with local time + Open-Meteo weather.
+// T-Dongle S3: static clock + weather from Open-Meteo (no marquee).
 // Data: ip-api.com (lat/lon + city) and api.open-meteo.com (current only) — no API keys.
 //
 // Display: ST7735 160x80 (landscape, TFT_eSPI + LilyGO vendor Setup47).
@@ -39,7 +39,7 @@ float    g_temp     = 0;
 int      g_wxCode   = -1;
 uint32_t g_nextWxMs = 0;
 
-char     g_ticker[192];
+char g_lastFace[160];  // "l1|l2|l3" — redraw only when this changes
 
 struct WxLabel {
     int         code;
@@ -66,57 +66,90 @@ void backlightOn() {
     digitalWrite(kBacklightPin, LOW);
 }
 
-void buildTicker(char *out, size_t len) {
+void shortenLineToFit(char *line, int maxPx) {
+    tft.setTextFont(2);
+    while (strlen(line) > 1 && tft.textWidth(line) > maxPx) {
+        line[strlen(line) - 1] = '\0';
+    }
+}
+
+// Build up to three lines for the 160x80 panel (font 2). Truncates to fit width.
+void buildFaceLines(char *l1, char *l2, char *l3, size_t lineLen, int maxPx) {
+    l1[0] = l2[0] = l3[0] = '\0';
+
     if (WiFi.status() != WL_CONNECTED) {
-        snprintf(out, len, "  WiFi offline — check secrets.h  ");
+        snprintf(l1, lineLen, "WiFi offline");
+        snprintf(l2, lineLen, "Edit secrets.h");
+        shortenLineToFit(l1, maxPx);
+        shortenLineToFit(l2, maxPx);
         return;
     }
     if (!g_haveNtp) {
-        snprintf(out, len, "  Time syncing…  ");
+        snprintf(l1, lineLen, "Time syncing…");
+        shortenLineToFit(l1, maxPx);
         return;
     }
     struct tm tm;
     if (!getLocalTime(&tm, 5)) {
-        snprintf(out, len, "  No clock  ");
+        snprintf(l1, lineLen, "No clock");
+        shortenLineToFit(l1, maxPx);
         return;
     }
+
     char tbuf[32];
-    strftime(tbuf, sizeof(tbuf), "%a %b %d  %H:%M", &tm);
+    strftime(tbuf, sizeof(tbuf), "%a %d  %H:%M", &tm);
 
     if (!g_haveLoc) {
-        snprintf(out, len, "  %s  — locating…  ", tbuf);
+        snprintf(l1, lineLen, "%s", tbuf);
+        snprintf(l2, lineLen, "Locating…");
+        shortenLineToFit(l1, maxPx);
+        shortenLineToFit(l2, maxPx);
         return;
     }
 
     if (!g_wxOk) {
-        snprintf(out, len, "  %s  |  %s  |  weather…  ", tbuf, g_place);
+        snprintf(l1, lineLen, "%s", tbuf);
+        snprintf(l2, lineLen, "%s", g_place);
+        snprintf(l3, lineLen, "Weather…");
+        shortenLineToFit(l1, maxPx);
+        shortenLineToFit(l2, maxPx);
+        shortenLineToFit(l3, maxPx);
         return;
     }
 
     const char *unit =
         (strcmp(WEATHER_TEMP_UNIT, "fahrenheit") == 0) ? "F" : "C";
-    snprintf(out, len,
-             "  %s  |  %s  %.0f%s  %s  ",
-             g_place, tbuf, g_temp, unit, wxShort(g_wxCode));
+    snprintf(l1, lineLen, "%s", tbuf);
+    snprintf(l2, lineLen, "%s", g_place);
+    snprintf(l3, lineLen, "%.0f%s  %s", g_temp, unit, wxShort(g_wxCode));
+    shortenLineToFit(l1, maxPx);
+    shortenLineToFit(l2, maxPx);
+    shortenLineToFit(l3, maxPx);
 }
 
-void drawMarquee(const char *text, int y) {
+void drawFaceIfChanged(const char *l1, const char *l2, const char *l3) {
+    char sig[160];
+    snprintf(sig, sizeof(sig), "%s|%s|%s", l1, l2, l3);
+    if (strcmp(sig, g_lastFace) == 0) {
+        return;
+    }
+    strncpy(g_lastFace, sig, sizeof(g_lastFace));
+    g_lastFace[sizeof(g_lastFace) - 1] = '\0';
+
+    tft.fillScreen(TFT_BLACK);
     tft.setTextFont(2);
     tft.setTextDatum(TL_DATUM);
-    int fh = tft.fontHeight(2);
-    int tw = tft.textWidth(text);
-    const int gap = 36;
-    int stride = tw + gap;
-    if (stride < kScrW / 4) {
-        stride = kScrW / 4;
-    }
-    int scroll = static_cast<int>((millis() / 22) % stride);
-
-    tft.fillRect(0, y, kScrW, fh, TFT_BLACK);
     tft.setTextColor(TFT_CYAN, TFT_BLACK);
-
-    for (int x = -scroll; x < kScrW + tw; x += stride) {
-        tft.drawString(text, x, y);
+    constexpr int padX = 2;
+    constexpr int y1   = 6;
+    constexpr int y2   = 28;
+    constexpr int y3   = 50;
+    tft.drawString(l1, padX, y1);
+    if (l2[0]) {
+        tft.drawString(l2, padX, y2);
+    }
+    if (l3[0]) {
+        tft.drawString(l3, padX, y3);
     }
 }
 
@@ -231,7 +264,7 @@ void setup() {
 
     tft.setTextColor(TFT_GREEN, TFT_BLACK);
     tft.setTextFont(2);
-    tft.drawString("T-Dongle ticker", 4, 8);
+    tft.drawString("T-Dongle", 4, 8);
     tft.drawString("WiFi…", 4, 28);
 
     wifiBegin();
@@ -277,7 +310,9 @@ void loop() {
         g_wasWifi = false;
     }
 
-    buildTicker(g_ticker, sizeof(g_ticker));
-    drawMarquee(g_ticker, (kScrH - tft.fontHeight(2)) / 2);
-    delay(5);
+    tft.setTextFont(2);
+    char l1[48], l2[48], l3[48];
+    buildFaceLines(l1, l2, l3, sizeof(l1), kScrW - 4);
+    drawFaceIfChanged(l1, l2, l3);
+    delay(200);
 }

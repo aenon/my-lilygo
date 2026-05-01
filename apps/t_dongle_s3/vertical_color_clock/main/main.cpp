@@ -1,7 +1,7 @@
 // T-Dongle S3: portrait clock — stacked face (22: / 52 / Thu / Apr / 30), HSV drift.
 // WiFi + NTP at boot (TZ from secrets.h).
 //
-// Physical habit: hold the stick with the **USB-A plug toward the bottom**.
+// Physical habit: **USB-A toward the bottom** (default `kTftRotation`).
 // See kTftRotation (ST7735 / TFT_eSPI + LilyGO vendor Setup47).
 
 #include <Arduino.h>
@@ -16,9 +16,10 @@
 
 namespace {
 
-// Portrait logical size is 80 (W) x 160 (H). Default rotation 2 = upright text
-// with USB at bottom on typical T-Dongle-S3 units; use 0 if yours is inverted.
-constexpr uint8_t kTftRotation = 2;
+// Portrait logical size is 80 (W) x 160 (H). Default rotation **0** = upright
+// clock with **USB-A toward the bottom** on T-Dongle-S3. Use **2** if yours is
+// flipped (USB ends up at the top).
+constexpr uint8_t kTftRotation = 0;
 constexpr uint8_t kBacklightPin = 38;
 
 constexpr char kNtp1[] = "pool.ntp.org";

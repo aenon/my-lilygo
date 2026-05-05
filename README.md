@@ -8,7 +8,7 @@ both ESP32-S3 based:
 | Device | Board ID | Notes |
 |---|---|---|
 | **T5 E-Paper S3 Pro** | `H752-02` | 4.7" 960×540 16-gray e-paper, 915 MHz LoRa, GPS/GLONASS/BeiDou |
-| **T-Dongle S3** | `K193` | USB-A stick with a 0.96" LCD (apps TBD) |
+| **T-Dongle S3** | `K193` | USB-A stick, ST7735; weather ticker + portrait color clock |
 
 A third board, the **T-Echo (nRF52840)**, lives in the same drawer but runs
 [Meshtastic](https://meshtastic.org/) firmware unmodified — not built from
@@ -17,6 +17,7 @@ this repo.
 ## Repository layout
 
 ```
+boards/                          # PlatformIO board JSON (T5 + dongles3)
 apps/
   _shared/                       # cross-device libs (net, fonts, etc.) — TBD
   t5_epaper_s3_pro/
@@ -24,12 +25,18 @@ apps/
     gps_dashboard/main/          # Landscape GPS/GNSS dashboard
     portrait_dashboard/main/     # Portrait clock + WiFi + battery + system
     weather_dashboard/main/      # Portrait Open-Meteo weather dashboard
-  t_dongle_s3/                   # placeholder, no apps yet
+  t_dongle_s3/
+    ticker_clock_weather/main/   # static weather + clock (landscape)
+    vertical_color_clock/main/   # portrait HH:MM + date, slow HSV colors
 scripts/
   bootstrap-vendor.sh            # clones LilyGo vendor repos into vendor/
 vendor/                          # gitignored — populated by bootstrap script
-platformio.ini                   # one [env:*] per device
+platformio.ini                   # one [env:*] per device; boards_dir = boards/
 ```
+
+Board definitions are committed under **`boards/`** so both the T5 and T-Dongle
+targets resolve without pointing `boards_dir` at two different vendor trees.
+Libraries and examples still come from **`vendor/<repo>`** after bootstrap.
 
 `secrets.h` files are gitignored everywhere; commit only `secrets.example.h`.
 
@@ -45,10 +52,13 @@ cd my-lilygo
 # Idempotent; re-run to pull updates.
 scripts/bootstrap-vendor.sh
 
-# For apps that need WiFi, copy the template and edit:
-cp apps/t5_epaper_s3_pro/weather_dashboard/main/secrets.example.h \
-   apps/t5_epaper_s3_pro/weather_dashboard/main/secrets.h
-$EDITOR apps/t5_epaper_s3_pro/weather_dashboard/main/secrets.h
+# For T-Dongle vertical color clock:
+cp apps/t_dongle_s3/vertical_color_clock/main/secrets.example.h \
+   apps/t_dongle_s3/vertical_color_clock/main/secrets.h
+$EDITOR apps/t_dongle_s3/vertical_color_clock/main/secrets.h
+cp apps/t_dongle_s3/ticker_clock_weather/main/secrets.example.h \
+   apps/t_dongle_s3/ticker_clock_weather/main/secrets.h
+$EDITOR apps/t_dongle_s3/ticker_clock_weather/main/secrets.h
 ```
 
 ## Build / flash / monitor
@@ -59,7 +69,10 @@ relevant `[env:*]` block of `platformio.ini`. Default env is
 
 ```bash
 pio run -e t5_epaper_s3_pro                    # compile
-pio run -e t5_epaper_s3_pro -t upload          # flash via USB-C
+pio run -e t_dongle_s3                        # compile T-Dongle ticker
+pio run -e t5_epaper_s3_pro -t upload        # flash T5 via USB-C
+pio run -e t_dongle_s3 -t upload             # flash dongle: weather ticker
+pio run -e t_dongle_s3_vertical_clock -t upload   # flash: portrait color clock
 pio device monitor --rts 0 --dtr 0
 ```
 

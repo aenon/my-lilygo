@@ -1,16 +1,26 @@
 // Image list — declares the available images in LittleFS for each category.
-// Images are 540x960 4bpp raw files (259,200 bytes each).
+// Full images are 540x960 4bpp raw (259,200 bytes).
+// Thumbnails are 200x356 4bpp raw (35,600 bytes).
 //
 // To add images:
-//   1. Put source PNG/SVG in images/<category>/
-//   2. Run: python3 scripts/svg-to-epaper.py images/<cat>/<file>.png \
-//             data/images/<cat>/<file>.epd --width 540 --height 960
-//   3. Add the filename (without path) to the array below
-//   4. pio run -e t5_epaper_s3_pro -t uploadfs
+//   1. Put source PNG in images/<category>/
+//   2. Convert full: python3 scripts/svg-to-epaper.py images/<cat>/<file>.png \
+//          data/images/<cat>/<file>.epd --width 540 --height 960
+//   3. Generate thumbnail (see scripts/gen-thumbnails.py)
+//   4. Add the filename to the array below
+//   5. pio run -e t5_epaper_s3_pro -t uploadfs
 
 #pragma once
 
 namespace images {
+
+constexpr int kFullW = 540;
+constexpr int kFullH = 960;
+constexpr int kFullSize = kFullW * kFullH / 2;  // 259,200 bytes
+
+constexpr int kThumbW = 200;
+constexpr int kThumbH = 356;
+constexpr int kThumbSize = kThumbW * kThumbH / 2;  // 35,600 bytes
 
 struct Category {
     const char *name;           // display label

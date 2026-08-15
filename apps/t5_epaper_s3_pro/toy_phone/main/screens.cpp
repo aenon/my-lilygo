@@ -216,55 +216,87 @@ void GalleryGridScreen::onEnter() {
     drawBackButton();
     drawHeader(cat.name);
 
-    // Grid: 1 column of large buttons, each showing the image filename
-    int btnW = W - 80;
-    int btnH = 100;
-    int btnX = 40;
+    // 2-column thumbnail grid.  Each cell is kThumbW x kThumbH + borders.
+    int cols = 2;
+    int cellW = images::kThumbW + 20;   // thumbnail + padding
+    int cellH = images::kThumbH + 20;
+    int gridW = cols * cellW;
+    int startX = (W - gridW) / 2;
     int startY = 110;
-    int gap = 20;
 
     for (int i = 0; i < cat.count; i++) {
-        int y = startY + i * (btnH + gap);
+        int col = i % cols;
+        int row = i / cols;
+        int x = startX + col * cellW;
+        int y = startY + row * cellH;
 
-        epd::fillRect(btnX, y, btnW, btnH, epd::kWhite);
-        epd::drawHLine(btnX, y, btnW);
-        epd::drawHLine(btnX, y + btnH - 1, btnW);
-        epd::drawVLine(btnX, y, btnH);
-        epd::drawVLine(btnX + btnW - 1, y, btnH);
-
-        // Strip .epd extension for display
-        char label[32];
-        strncpy(label, cat.files[i], sizeof(label) - 1);
-        label[sizeof(label) - 1] = '\0';
-        char *dot = strchr(label, '.');
+        // Load and draw the thumbnail
+        char thumbPath[96];
+        const char *fname = cat.files[i];
+        // Build "thumb_<name>.epd" from "<name>.epd"
+        char thumbName[48];
+        strncpy(thumbName, fname, sizeof(thumbName) - 1);
+        thumbName[sizeof(thumbName) - 1] = '\0';
+        char *dot = strchr(thumbName, '.');
         if (dot) *dot = '\0';
+        snprintf(thumbPath, sizeof(thumbPath), "%s/thumb_%s.epd", cat.dir, thumbName);
 
-        // Capitalize first letter
-        if (label[0] >= 'a' && label[0] <= 'z') label[0] -= 32;
+        File f = LittleFS.open(thumbPath, "r");
+        if (f) {
+            uint8_t *buf = (uint8_t *)malloc(images::kThumbSize);
+            if (buf) {
+                size_t got = f.read(buf, images::kThumbSize);
+                f.close();
+                if (got == images::kThumbSize) {
+                    // Thumbnail border
+                    epd::fillRect(x, y, images::kThumbW + 8, images::kThumbH + 8, epd::kWhite);
+                    epd::drawHLine(x, y, images::kThumbW + 8);
+                    epd::drawHLine(x, y + images::kThumbH + 7, images::kThumbW + 8);
+                    epd::drawVLine(x, y, images::kThumbH + 8);
+                    epd::drawVLine(x + images::kThumbW + 7, y, images::kThumbH + 8);
 
-        epd::drawCenterText(&FiraSans_20, W / 2, y + 40, label);
-        char num[8];
-        snprintf(num, sizeof(num), "#%d", i + 1);
-        epd::drawCenterText(&FiraSans_12, W / 2, y + 70, num);
+                    // Draw thumbnail via epd_draw_rotated_image (handles portrait rotation)
+                    EpdRect area = {.x = x + 4, .y = y + 4,
+                                    .width = images::kThumbW, .height = images::kThumbH};
+                    epd_draw_rotated_image(area, buf, epd::fb);
+                }
+                free(buf);
+            } else {
+                f.close();
+            }
+        } else {
+            // Fallback: empty bordered cell
+            epd::fillRect(x, y, images::kThumbW + 8, images::kThumbH + 8, epd::kWhite);
+            epd::drawHLine(x, y, images::kThumbW + 8);
+            epd::drawHLine(x, y + images::kThumbH + 7, images::kThumbW + 8);
+            epd::drawVLine(x, y, images::kThumbH + 8);
+            epd::drawVLine(x + images::kThumbW + 7, y, images::kThumbH + 8);
+            epd::drawCenterText(&FiraSans_12, x + images::kThumbW / 2 + 4,
+                                y + images::kThumbH / 2, "?");
+        }
     }
 
     epd::drawCenterText(&FiraSans_12, W / 2, epd::kHeight - 30,
-                        "Tap to view  |  < back");
+                        "Tap a picture  |  < back");
 }
 
 bool GalleryGridScreen::onTouch(int x, int y) {
     if (kBackZone.hit(x, y)) return true;  // pop
 
     const auto &cat = images::kCategories[category_];
-    int btnW = epd::kWidth - 80;
-    int btnH = 100;
-    int btnX = 40;
+    int cols = 2;
+    int cellW = images::kThumbW + 20;
+    int cellH = images::kThumbH + 20;
+    int gridW = cols * cellW;
+    int startX = (epd::kWidth - gridW) / 2;
     int startY = 110;
-    int gap = 20;
 
     for (int i = 0; i < cat.count; i++) {
-        int by = startY + i * (btnH + gap);
-        ui::TapZone zone = {btnX, by, btnW, btnH};
+        int col = i % cols;
+        int row = i / cols;
+        int cx = startX + col * cellW;
+        int cy = startY + row * cellH;
+        ui::TapZone zone = {cx, cy, images::kThumbW + 8, images::kThumbH + 8};
         if (zone.hit(x, y)) {
             Serial.printf("[grid] tapped image %d\n", i);
             tappedImage_ = i;

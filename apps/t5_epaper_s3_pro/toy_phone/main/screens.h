@@ -99,12 +99,28 @@ private:
     void prev();
 };
 
+// ---- Phone: dial pad + mock call screen -----------------------------------
+
 class PhoneScreen : public ui::Screen {
 public:
     void onEnter() override;
     bool onTouch(int x, int y) override;
     const char *name() const override { return "Phone"; }
+
+    // When true, the screen shows the "Calling..." mock instead of the dial pad.
+    bool calling_ = false;
+
+private:
+    char dialed_[16] = "";
+    int dialedLen_ = 0;
+
+    void pressKey(char c);
+    void deleteKey();
+    void startCall();
+    void endCall();
 };
+
+// ---- Clock: big digital time + date (NTP) ---------------------------------
 
 class ClockScreen : public ui::Screen {
 public:
@@ -112,13 +128,26 @@ public:
     bool onTouch(int x, int y) override;
     bool onTick() override;
     const char *name() const override { return "Clock"; }
+
+private:
+    uint32_t lastRenderMs_ = 0;
+    int lastMinute_ = -1;
+    void drawClock();
 };
+
+// ---- Settings: visual-only toggle rows ------------------------------------
 
 class SettingsScreen : public ui::Screen {
 public:
     void onEnter() override;
     bool onTouch(int x, int y) override;
     const char *name() const override { return "Settings"; }
+
+private:
+    static constexpr int kRowCount = 3;
+    bool toggles_[kRowCount] = {true, false, true};
+    const char *labels_[kRowCount] = {"Sound", "Dark Mode", "24 Hour"};
+    int tappedToggle_ = -1;
 };
 
 }  // namespace screens

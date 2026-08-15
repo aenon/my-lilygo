@@ -390,42 +390,325 @@ void GalleryViewerScreen::prev() {
 }
 
 // ===========================================================================
-// Placeholder screens (later PRs will fill these in)
+// Phone: dial pad + mock call screen
 // ===========================================================================
 
-static void drawPlaceholder(const char *title, const char *hint) {
-    int W = epd::kWidth;
-    int H = epd::kHeight;
+// 3x4 dial pad: 1-9, *, 0, #
+static constexpr char kDialKeys[4][3] = {
+    {'1', '2', '3'},
+    {'4', '5', '6'},
+    {'7', '8', '9'},
+    {'*', '0', '#'},
+};
 
-    drawBackButton();
-    drawHeader(title);
+void PhoneScreen::pressKey(char c) {
+    if (dialedLen_ < (int)sizeof(dialed_) - 1) {
+        dialed_[dialedLen_++] = c;
+    }
+    Serial.printf("[phone] dialed: %s\n", dialed_);
+}
 
-    epd::drawCenterText(&FiraSans_12, W / 2, H / 2, hint);
-    epd::drawCenterText(&FiraSans_12, W / 2, H - 30, "Tap < to go back");
+void PhoneScreen::deleteKey() {
+    if (dialedLen_ > 0) {
+        dialedLen_--;
+        dialed_[dialedLen_] = '\0';
+        Serial.printf("[phone] dialed: %s\n", dialed_);
+    }
+}
+
+void PhoneScreen::startCall() {
+    if (dialedLen_ == 0) return;
+    calling_ = true;
+    Serial.printf("[phone] calling %s...\n", dialed_);
+}
+
+void PhoneScreen::endCall() {
+    calling_ = false;
+    dialedLen_ = 0;
+    dialed_[0] = '\0';
+    Serial.println("[phone] call ended");
 }
 
 void PhoneScreen::onEnter() {
-    drawPlaceholder("Phone", "Coming soon");
-}
-bool PhoneScreen::onTouch(int x, int y) {
-    return kBackZone.hit(x, y);
+    int W = epd::kWidth;
+    int H = epd::kHeight;
+
+    if (calling_) {
+        // --- Mock call screen ---
+        epd::fillWhite();
+        drawBackButton();  // not shown prominently, but still works
+
+        epd::drawCenterText(&FiraSans_20, W / 2, 200, "Calling...");
+
+        // Show dialed number in large text
+        epd::drawCenterText(&FiraSans_20, W / 2, 350, dialed_);
+
+        // Big red hang-up button (drawn as a black circle)
+        int cx = W / 2;
+        int cy = 650;
+        epd::fillRect(cx - 60, cy - 60, 120, 120, epd::kBlack);
+        epd::fillRect(cx - 50, cy - 50, 100, 100, epd::kWhite);
+        epd::drawCenterText(&FiraSans_12, cx, cy + 5, "Hang Up");
+
+        epd::drawCenterText(&FiraSans_12, W / 2, H - 30, "Tap to hang up");
+        return;
+    }
+
+    // --- Dial pad screen ---
+    epd::fillWhite();
+    drawBackButton();
+    drawHeader("Phone");
+
+    // Dialed number display
+    if (dialedLen_ > 0) {
+        epd::drawCenterText(&FiraSans_20, W / 2, 130, dialed_);
+    } else {
+        epd::drawCenterText(&FiraSans_12, W / 2, 125, "Enter a number");
+    }
+    epd::drawHLine(40, 160, W - 80);
+
+    // 3x4 key grid
+    int cols = 3;
+    int rows = 4;
+    int keySize = 120;
+    int gap = 15;
+    int gridW = cols * keySize + (cols - 1) * gap;
+    int startX = (W - gridW) / 2;
+    int startY = 200;
+
+    for (int r = 0; r < rows; r++) {
+        for (int c = 0; c < cols; c++) {
+            int x = startX + c * (keySize + gap);
+            int y = startY + r * (keySize + gap);
+
+            // Key box: white fill, black border
+            epd::fillRect(x, y, keySize, keySize, epd::kWhite);
+            epd::drawHLine(x, y, keySize);
+            epd::drawHLine(x, y + keySize - 1, keySize);
+            epd::drawVLine(x, y, keySize);
+            epd::drawVLine(x + keySize - 1, y, keySize);
+
+            // Key label
+            char label[2] = {kDialKeys[r][c], '\0'};
+            epd::drawCenterText(&FiraSans_20, x + keySize / 2,
+                                y + keySize / 2 + 8, label);
+        }
+    }
+
+    // Delete button (below the grid)
+    int delY = startY + rows * (keySize + gap) + 5;
+    epd::drawCenterText(&FiraSans_12, W / 2, delY, "Delete");
+
+    // Green call button (drawn as a filled black rect with white text)
+    int callY = delY + 30;
+    int callW = 200;
+    int callH = 50;
+    int callX = (W - callW) / 2;
+    epd::fillRect(callX, callY, callW, callH, epd::kBlack);
+    epd::drawCenterText(&FiraSans_12, W / 2, callY + 30, "Call");
 }
 
-void ClockScreen::onEnter() {
-    drawPlaceholder("Clock", "Coming soon");
-}
-bool ClockScreen::onTouch(int x, int y) {
-    return kBackZone.hit(x, y);
-}
-bool ClockScreen::onTick() {
+bool PhoneScreen::onTouch(int x, int y) {
+    int W = epd::kWidth;
+
+    if (calling_) {
+        // Any tap on the call screen (except back) hangs up
+        if (kBackZone.hit(x, y)) return true;  // pop
+        // Check hang-up button area (large zone in lower half)
+        if (y > 400) {
+            endCall();
+            return true;  // redraw dial pad
+        }
+        return false;
+    }
+
+    if (kBackZone.hit(x, y)) return true;  // pop
+
+    // Dial pad keys
+    int cols = 3;
+    int rows = 4;
+    int keySize = 120;
+    int gap = 15;
+    int gridW = cols * keySize + (cols - 1) * gap;
+    int startX = (W - gridW) / 2;
+    int startY = 200;
+
+    for (int r = 0; r < rows; r++) {
+        for (int c = 0; c < cols; c++) {
+            int kx = startX + c * (keySize + gap);
+            int ky = startY + r * (keySize + gap);
+            ui::TapZone zone = {kx, ky, keySize, keySize};
+            if (zone.hit(x, y)) {
+                pressKey(kDialKeys[r][c]);
+                return true;  // redraw
+            }
+        }
+    }
+
+    // Delete button
+    int delY = startY + rows * (keySize + gap) + 5;
+    ui::TapZone delZone = {W / 2 - 60, delY - 10, 120, 30};
+    if (delZone.hit(x, y)) {
+        deleteKey();
+        return true;
+    }
+
+    // Call button
+    int callY = delY + 30;
+    int callW = 200;
+    int callH = 50;
+    int callX = (W - callW) / 2;
+    ui::TapZone callZone = {callX, callY, callW, callH};
+    if (callZone.hit(x, y)) {
+        startCall();
+        return true;
+    }
+
     return false;
 }
 
-void SettingsScreen::onEnter() {
-    drawPlaceholder("Settings", "Coming soon");
+// ===========================================================================
+// Clock: big digital time + date (NTP)
+// ===========================================================================
+
+void ClockScreen::drawClock() {
+    int W = epd::kWidth;
+    int H = epd::kHeight;
+
+    epd::fillWhite();
+    drawBackButton();
+    drawHeader("Clock");
+
+    time_t now = time(nullptr);
+    if (now == 0) {
+        epd::drawCenterText(&FiraSans_20, W / 2, H / 2, "No time");
+        epd::drawCenterText(&FiraSans_12, W / 2, H / 2 + 30,
+                            "WiFi/NTP not connected");
+        return;
+    }
+
+    struct tm tm;
+    localtime_r(&now, &tm);
+
+    // Big time (HH:MM) — drawn using large text
+    char timeBuf[8];
+    strftime(timeBuf, sizeof(timeBuf), "%H:%M", &tm);
+    epd::drawCenterText(&FiraSans_20, W / 2, 350, timeBuf);
+
+    // Date below
+    char dateBuf[32];
+    strftime(dateBuf, sizeof(dateBuf), "%A", &tm);  // full weekday
+    epd::drawCenterText(&FiraSans_12, W / 2, 420, dateBuf);
+
+    char dateBuf2[32];
+    strftime(dateBuf2, sizeof(dateBuf2), "%B %d, %Y", &tm);
+    epd::drawCenterText(&FiraSans_12, W / 2, 450, dateBuf2);
+
+    // AM/PM indicator
+    char ampm[4];
+    strftime(ampm, sizeof(ampm), "%p", &tm);
+    epd::drawCenterText(&FiraSans_12, W / 2, 500, ampm);
 }
+
+void ClockScreen::onEnter() {
+    drawClock();
+}
+
+bool ClockScreen::onTouch(int x, int y) {
+    if (kBackZone.hit(x, y)) return true;
+    return false;
+}
+
+bool ClockScreen::onTick() {
+    time_t now = time(nullptr);
+    if (now == 0) return false;
+
+    struct tm tm;
+    localtime_r(&now, &tm);
+
+    // Only redraw when the minute changes
+    if (tm.tm_min != lastMinute_) {
+        lastMinute_ = tm.tm_min;
+        drawClock();
+        return true;
+    }
+    return false;
+}
+
+// ===========================================================================
+// Settings: visual-only toggle rows
+// ===========================================================================
+
+void SettingsScreen::onEnter() {
+    int W = epd::kWidth;
+    epd::fillWhite();
+    drawBackButton();
+    drawHeader("Settings");
+
+    int rowH = 80;
+    int rowW = W - 80;
+    int rowX = 40;
+    int startY = 120;
+    int gap = 20;
+
+    for (int i = 0; i < kRowCount; i++) {
+        int y = startY + i * (rowH + gap);
+
+        // Row background
+        epd::fillRect(rowX, y, rowW, rowH, epd::kWhite);
+        epd::drawHLine(rowX, y, rowW);
+        epd::drawHLine(rowX, y + rowH - 1, rowW);
+        epd::drawVLine(rowX, y, rowH);
+        epd::drawVLine(rowX + rowW - 1, y, rowH);
+
+        // Label
+        epd::drawText(&FiraSans_12, rowX + 20, y + rowH / 2 + 4, labels_[i]);
+
+        // Toggle switch on the right side
+        int tw = 60;
+        int th = 30;
+        int tx = rowX + rowW - tw - 20;
+        int ty = y + (rowH - th) / 2;
+
+        if (toggles_[i]) {
+            // ON: filled black with white knob on right
+            epd::fillRect(tx, ty, tw, th, epd::kBlack);
+            epd::fillRect(tx + tw - th + 2, ty + 2, th - 4, th - 4, epd::kWhite);
+        } else {
+            // OFF: white with border, knob on left
+            epd::fillRect(tx, ty, tw, th, epd::kWhite);
+            epd::drawHLine(tx, ty, tw);
+            epd::drawHLine(tx, ty + th - 1, tw);
+            epd::drawVLine(tx, ty, th);
+            epd::drawVLine(tx + tw - 1, ty, th);
+            epd::fillRect(tx + 2, ty + 2, th - 4, th - 4, epd::kBlack);
+        }
+    }
+
+    epd::drawCenterText(&FiraSans_12, W / 2, epd::kHeight - 30,
+                        "Tap a row to toggle  |  < back");
+}
+
 bool SettingsScreen::onTouch(int x, int y) {
-    return kBackZone.hit(x, y);
+    if (kBackZone.hit(x, y)) return true;
+
+    int rowH = 80;
+    int rowW = epd::kWidth - 80;
+    int rowX = 40;
+    int startY = 120;
+    int gap = 20;
+
+    for (int i = 0; i < kRowCount; i++) {
+        int ry = startY + i * (rowH + gap);
+        ui::TapZone zone = {rowX, ry, rowW, rowH};
+        if (zone.hit(x, y)) {
+            toggles_[i] = !toggles_[i];
+            Serial.printf("[settings] toggle %d (%s) -> %s\n", i,
+                          labels_[i], toggles_[i] ? "ON" : "OFF");
+            return true;
+        }
+    }
+    return false;
 }
 
 }  // namespace screens

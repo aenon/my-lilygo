@@ -3,11 +3,14 @@
 
 #include <Arduino.h>
 #include <Wire.h>
+#include <WiFi.h>
+#include <time.h>
 
 #include "epd_wrap.h"
 #include "touch.h"
 #include "ui.h"
 #include "screens.h"
+#include "secrets.h"
 
 namespace {
 
@@ -38,6 +41,14 @@ void setup() {
     // Touch must init BEFORE epd — touch.begin() calls Wire.begin().
     touch::init();
     epd::init();
+
+    // WiFi for NTP clock (non-blocking — runs in background)
+    WiFi.mode(WIFI_STA);
+    WiFi.setAutoReconnect(true);
+    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+    if (WiFi.status() == WL_CONNECTED) {
+        configTzTime(TZ_INFO, "pool.ntp.org", "time.google.com");
+    }
 
     g_mgr.push(&s_lock);
 }
@@ -96,5 +107,15 @@ void loop() {
     }
 
     g_mgr.tick();
+
+    // Maintain WiFi + NTP in background
+    if (g_unlocked && WiFi.status() == WL_CONNECTED) {
+        static bool ntpConfigured = false;
+        if (!ntpConfigured) {
+            configTzTime(TZ_INFO, "pool.ntp.org", "time.google.com");
+            ntpConfigured = true;
+        }
+    }
+
     delay(50);
 }

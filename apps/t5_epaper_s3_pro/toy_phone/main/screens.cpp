@@ -153,81 +153,25 @@ bool LauncherScreen::onTouch(int x, int y) {
 }
 
 // ===========================================================================
-// Gallery: category list
-// ===========================================================================
-
-void GalleryScreen::onEnter() {
-    int W = epd::kWidth;
-    drawBackButton();
-    drawHeader("Gallery");
-
-    // Two large category buttons
-    int btnW = W - 80;
-    int btnH = 120;
-    int btnX = 40;
-
-    for (int i = 0; i < images::kCategoryCount; i++) {
-        int y = 120 + i * (btnH + 30);
-
-        // Button background (white) with black border
-        epd::fillRect(btnX, y, btnW, btnH, epd::kWhite);
-        epd::drawHLine(btnX, y, btnW);
-        epd::drawHLine(btnX, y + btnH - 1, btnW);
-        epd::drawVLine(btnX, y, btnH);
-        epd::drawVLine(btnX + btnW - 1, y, btnH);
-
-        // Category name + image count
-        epd::drawCenterText(&FiraSans_20, W / 2, y + 45, images::kCategories[i].name);
-        char count[32];
-        snprintf(count, sizeof(count), "%d pictures",
-                 images::kCategories[i].count);
-        epd::drawCenterText(&FiraSans_12, W / 2, y + 80, count);
-    }
-
-    epd::drawCenterText(&FiraSans_12, W / 2, epd::kHeight - 30, "Tap a category");
-}
-
-bool GalleryScreen::onTouch(int x, int y) {
-    if (kBackZone.hit(x, y)) return true;  // pop
-
-    int btnW = epd::kWidth - 80;
-    int btnH = 120;
-    int btnX = 40;
-
-    for (int i = 0; i < images::kCategoryCount; i++) {
-        int by = 120 + i * (btnH + 30);
-        ui::TapZone zone = {btnX, by, btnW, btnH};
-        if (zone.hit(x, y)) {
-            Serial.printf("[gallery] tapped category %d\n", i);
-            tappedCategory_ = i;
-            return false;  // main.cpp pushes the grid
-        }
-    }
-    return false;
-}
-
-// ===========================================================================
-// Gallery: thumbnail grid
+// Gallery: thumbnail grid (flat list — no categories)
 // ===========================================================================
 
 void GalleryGridScreen::onEnter() {
     int W = epd::kWidth;
-    const auto &cat = images::kCategories[category_];
-
-    Serial.printf("[grid] onEnter: category=%d count=%d\n", category_, cat.count);
+    int count = images::kImageCount;
 
     drawBackButton();
-    drawHeader(cat.name);
+    drawHeader("Photos");
 
     // 2-column thumbnail grid.  Each cell is kThumbW x kThumbH + borders.
     int cols = 2;
-    int cellW = images::kThumbW + 20;   // thumbnail + padding
+    int cellW = images::kThumbW + 20;
     int cellH = images::kThumbH + 20;
     int gridW = cols * cellW;
     int startX = (W - gridW) / 2;
     int startY = 110;
 
-    for (int i = 0; i < cat.count; i++) {
+    for (int i = 0; i < count; i++) {
         int col = i % cols;
         int row = i / cols;
         int x = startX + col * cellW;
@@ -235,23 +179,21 @@ void GalleryGridScreen::onEnter() {
 
         // Load and draw the thumbnail
         char thumbPath[96];
-        const char *fname = cat.files[i];
-        // Build "thumb_<name>.epd" from "<name>.epd"
+        const char *fname = images::kImages[i];
         char thumbName[48];
         strncpy(thumbName, fname, sizeof(thumbName) - 1);
         thumbName[sizeof(thumbName) - 1] = '\0';
         char *dot = strchr(thumbName, '.');
         if (dot) *dot = '\0';
-        snprintf(thumbPath, sizeof(thumbPath), "%s/thumb_%s.epd", cat.dir, thumbName);
+        snprintf(thumbPath, sizeof(thumbPath), "%s/thumb_%s.epd",
+                 images::kDir, thumbName);
 
         File f = LittleFS.open(thumbPath, "r");
         if (f) {
-            Serial.printf("[grid] thumb %s: open OK, size=%d\n", thumbPath, f.size());
             uint8_t *buf = (uint8_t *)heap_caps_malloc(images::kThumbSize, MALLOC_CAP_SPIRAM);
             if (buf) {
                 size_t got = f.read(buf, images::kThumbSize);
                 f.close();
-                Serial.printf("[grid] thumb %s: read %u bytes\n", thumbPath, got);
                 if (got == images::kThumbSize) {
                     // Thumbnail border (drawn in logical coords — epdiy rotates these)
                     epd::fillRect(x, y, images::kThumbW + 8, images::kThumbH + 8, epd::kWhite);
@@ -262,9 +204,6 @@ void GalleryGridScreen::onEnter() {
 
                     // Thumbnail is pre-rotated to physical 356x200 layout.
                     // EPD_ROT_INVERTED_PORTRAIT: phys = (ly, 540 - lx - lw).
-                    // Logical thumbnail is kThumbW(200) wide x kThumbH(356) tall.
-                    // Physical size is swapped: 356 wide x 200 tall.
-                    // physY = 540 - lx - kThumbW (logical width → physical height offset)
                     int lx = x + 4;
                     int ly = y + 4;
                     int physX = ly;
@@ -278,7 +217,6 @@ void GalleryGridScreen::onEnter() {
                 f.close();
             }
         } else {
-            Serial.printf("[grid] thumb %s: OPEN FAILED\n", thumbPath);
             // Fallback: empty bordered cell
             epd::fillRect(x, y, images::kThumbW + 8, images::kThumbH + 8, epd::kWhite);
             epd::drawHLine(x, y, images::kThumbW + 8);
@@ -297,7 +235,6 @@ void GalleryGridScreen::onEnter() {
 bool GalleryGridScreen::onTouch(int x, int y) {
     if (kBackZone.hit(x, y)) return true;  // pop
 
-    const auto &cat = images::kCategories[category_];
     int cols = 2;
     int cellW = images::kThumbW + 20;
     int cellH = images::kThumbH + 20;
@@ -305,7 +242,7 @@ bool GalleryGridScreen::onTouch(int x, int y) {
     int startX = (epd::kWidth - gridW) / 2;
     int startY = 110;
 
-    for (int i = 0; i < cat.count; i++) {
+    for (int i = 0; i < images::kImageCount; i++) {
         int col = i % cols;
         int row = i / cols;
         int cx = startX + col * cellW;
@@ -325,22 +262,12 @@ bool GalleryGridScreen::onTouch(int x, int y) {
 // ===========================================================================
 
 constexpr int kImageSize = 960 * 540 / 2;  // 259,200 bytes (4bpp, physical 960x540)
-
-// Images are pre-rotated at build time into the physical framebuffer layout
-// (960x540).  This lets us use epd_copy_to_framebuffer — a simple memcpy-like
-// loop — instead of epd_draw_rotated_image, which does 519,840 per-pixel
-// function calls and causes a watchdog timeout / hard freeze.
-//
-// epd_copy_to_framebuffer takes the area in physical coordinates and ignores
-// the epdiy rotation setting.  For a full-screen image: {0, 0, 960, 540}.
 constexpr int kPhysW = 960;
 constexpr int kPhysH = 540;
 
-bool GalleryViewerScreen::loadImage(int category, int index) {
-    const auto &cat = images::kCategories[category];
-
+bool GalleryViewerScreen::loadImage(int index) {
     char path[80];
-    snprintf(path, sizeof(path), "%s/%s", cat.dir, cat.files[index]);
+    snprintf(path, sizeof(path), "%s/%s", images::kDir, images::kImages[index]);
 
     Serial.printf("[viewer] loading %s ...\n", path);
 
@@ -371,7 +298,6 @@ bool GalleryViewerScreen::loadImage(int category, int index) {
     epd::fillWhite();
 
     // Fast path: image is already in physical 960x540 layout.
-    // epd_copy_to_framebuffer ignores rotation and writes directly.
     EpdRect area = {.x = 0, .y = 0, .width = kPhysW, .height = kPhysH};
     epd_copy_to_framebuffer(area, buf, epd::fb);
 
@@ -381,14 +307,7 @@ bool GalleryViewerScreen::loadImage(int category, int index) {
 }
 
 void GalleryViewerScreen::onEnter() {
-    const auto &cat = images::kCategories[category_];
-
-    Serial.printf("[viewer] onEnter: cat=%d idx=%d heap=%u psram=%u\n",
-                  category_, imageIndex_,
-                  ESP.getFreeHeap(), ESP.getFreePsram());
-
-    if (!loadImage(category_, imageIndex_)) {
-        Serial.println("[viewer] loadImage FAILED");
+    if (!loadImage(imageIndex_)) {
         epd::fillWhite();
         drawBackButton();
         epd::drawCenterText(&FiraSans_20, epd::kWidth / 2, 200, "No Image");
@@ -397,16 +316,20 @@ void GalleryViewerScreen::onEnter() {
         return;
     }
 
-    Serial.println("[viewer] loadImage OK, drawing overlay");
+    int W = epd::kWidth;
+    int H = epd::kHeight;
+
+    // Semi-opaque white bars behind nav text so it's readable over the image.
+    epd::fillRect(0, 0, 100, 60, 0xCC);
     drawBackButton();
 
     char counter[16];
-    snprintf(counter, sizeof(counter), "%d / %d", imageIndex_ + 1, cat.count);
-    epd::drawCenterText(&FiraSans_12, epd::kWidth / 2, 30, counter);
+    snprintf(counter, sizeof(counter), "%d / %d", imageIndex_ + 1, images::kImageCount);
+    epd::fillRect(W / 2 - 50, 10, 100, 30, 0xCC);
+    epd::drawCenterText(&FiraSans_12, W / 2, 30, counter);
 
-    epd::drawCenterText(&FiraSans_12, epd::kWidth / 2, epd::kHeight - 20,
-                        "< prev  |  next >");
-    Serial.println("[viewer] onEnter done");
+    epd::fillRect(0, H - 50, W, 50, 0xCC);
+    epd::drawCenterText(&FiraSans_12, W / 2, H - 25, "< prev  |  next >");
 }
 
 bool GalleryViewerScreen::onTouch(int x, int y) {
@@ -414,20 +337,25 @@ bool GalleryViewerScreen::onTouch(int x, int y) {
 
     if (kBackZone.hit(x, y)) return true;  // pop
 
-    // Left half = prev, right half = next (below the back button zone)
     if (y > 80) {
         if (x < W / 2) {
-            const auto &cat = images::kCategories[category_];
-            imageIndex_ = (imageIndex_ - 1 + cat.count) % cat.count;
-            Serial.printf("[viewer] prev -> %d\n", imageIndex_);
+            prev();
         } else {
-            const auto &cat = images::kCategories[category_];
-            imageIndex_ = (imageIndex_ + 1) % cat.count;
-            Serial.printf("[viewer] next -> %d\n", imageIndex_);
+            next();
         }
-        return true;  // ScreenManager::redraw() will call onEnter() + refresh()
+        return true;
     }
     return false;
+}
+
+void GalleryViewerScreen::next() {
+    imageIndex_ = (imageIndex_ + 1) % images::kImageCount;
+    onEnter();
+}
+
+void GalleryViewerScreen::prev() {
+    imageIndex_ = (imageIndex_ - 1 + images::kImageCount) % images::kImageCount;
+    onEnter();
 }
 
 // ===========================================================================

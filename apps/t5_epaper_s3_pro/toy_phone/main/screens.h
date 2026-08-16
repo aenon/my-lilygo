@@ -49,32 +49,16 @@ private:
 // ---- Back button tap zone (shared by all sub-screens) ---------------------
 // Top-left 80x80 area.  Used by screens that have a "back" affordance.
 
-// ---- Gallery: category list -----------------------------------------------
-// Shows "Animals" and "Vehicles" buttons.  Tapping one pushes the grid.
+// ---- Gallery: thumbnail grid ----------------------------------------------
+// Flat grid of all photos.  Tapping one pushes the viewer.
 
-class GalleryScreen : public ui::Screen {
+class GalleryGridScreen : public ui::Screen {
 public:
     void onEnter() override;
     bool onTouch(int x, int y) override;
     const char *name() const override { return "Gallery"; }
 
-    int tappedCategory_ = -1;  // 0=animals, 1=vehicles; main.cpp reads this
-};
-
-// ---- Gallery: thumbnail grid ----------------------------------------------
-// Shows a grid of image names for the selected category.  Tapping one
-// pushes the viewer.
-
-class GalleryGridScreen : public ui::Screen {
-public:
-    explicit GalleryGridScreen(int category) : category_(category) {}
-
-    void onEnter() override;
-    bool onTouch(int x, int y) override;
-    const char *name() const override { return "GalleryGrid"; }
-
-    int tappedImage_ = -1;  // index into the image list; main.cpp reads this
-    int category_ = 0;      // 0=animals, 1=vehicles
+    int tappedImage_ = -1;  // index into images::kImages; main.cpp reads this
 };
 
 // ---- Gallery: full-screen image viewer -------------------------------------
@@ -83,18 +67,16 @@ public:
 
 class GalleryViewerScreen : public ui::Screen {
 public:
-    GalleryViewerScreen(int category, int imageIndex)
-        : category_(category), imageIndex_(imageIndex) {}
+    explicit GalleryViewerScreen(int imageIndex) : imageIndex_(imageIndex) {}
 
     void onEnter() override;
     bool onTouch(int x, int y) override;
     const char *name() const override { return "Viewer"; }
 
 private:
-    int category_ = 0;
     int imageIndex_ = 0;
 
-    bool loadImage(int category, int index);
+    bool loadImage(int index);
     void next();
     void prev();
 };

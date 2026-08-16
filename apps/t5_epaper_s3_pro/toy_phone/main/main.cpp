@@ -24,11 +24,9 @@ screens::PhoneScreen    s_phone;
 screens::ClockScreen    s_clock;
 screens::SettingsScreen s_settings;
 
-// Gallery sub-screens are allocated on demand since they depend on the
-// selected category/image index.  We keep a small pool and reassign them.
-screens::GalleryScreen        s_gallery;
-screens::GalleryGridScreen   *s_grid = nullptr;    // allocated on tap
-screens::GalleryViewerScreen  *s_viewer = nullptr;  // allocated on tap
+// Gallery sub-screens are allocated on demand.
+screens::GalleryGridScreen    s_grid;               // persistent — no category needed
+screens::GalleryViewerScreen *s_viewer = nullptr;   // allocated on tap
 
 bool g_unlocked = false;
 
@@ -78,26 +76,17 @@ void loop() {
             if (s_launcher.tappedIcon_ >= 0) {
                 switch (s_launcher.tappedIcon_) {
                     case 0: g_mgr.push(&s_phone);    break;
-                    case 1: g_mgr.push(&s_gallery);  break;
+                    case 1: g_mgr.push(&s_grid);     break;
                     case 2: g_mgr.push(&s_clock);    break;
                     case 3: g_mgr.push(&s_settings); break;
                 }
             }
-        } else if (cur == &s_gallery) {
-            s_gallery.tappedCategory_ = -1;
+        } else if (cur == &s_grid) {
+            s_grid.tappedImage_ = -1;
             g_mgr.handleTouch(x, y);
-            if (s_gallery.tappedCategory_ >= 0) {
-                delete s_grid;
-                s_grid = new screens::GalleryGridScreen(s_gallery.tappedCategory_);
-                g_mgr.push(s_grid);
-            }
-        } else if (s_grid && cur == s_grid) {
-            s_grid->tappedImage_ = -1;
-            g_mgr.handleTouch(x, y);
-            if (s_grid->tappedImage_ >= 0) {
+            if (s_grid.tappedImage_ >= 0) {
                 delete s_viewer;
-                s_viewer = new screens::GalleryViewerScreen(
-                    s_grid->category_, s_grid->tappedImage_);
+                s_viewer = new screens::GalleryViewerScreen(s_grid.tappedImage_);
                 g_mgr.push(s_viewer);
             }
         } else {

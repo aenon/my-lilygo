@@ -7,7 +7,8 @@ namespace ui {
 
 void ScreenManager::push(Screen *s) {
     if (depth_ >= kMaxDepth) {
-        Serial.println("[ui] stack overflow, ignoring push");
+        Serial.printf("[ui] STACK OVERFLOW: depth=%d max=%d, ignoring push of '%s'\n",
+                      depth_, kMaxDepth, s->name());
         return;
     }
     stack_[depth_++] = s;
@@ -57,9 +58,14 @@ void ScreenManager::tick() {
 
 void ScreenManager::redraw() {
     if (depth_ == 0) return;
+    Serial.printf("[ui] redraw: '%s'\n", current()->name());
+    Serial.printf("[ui]   fillWhite\n");
     epd::fillWhite();
+    Serial.printf("[ui]   onEnter\n");
     current()->onEnter();
+    Serial.printf("[ui]   refresh\n");
     epd::refresh();
+    Serial.printf("[ui]   redraw done\n");
 }
 
 }  // namespace ui

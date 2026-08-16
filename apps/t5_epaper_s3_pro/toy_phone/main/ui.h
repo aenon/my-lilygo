@@ -40,10 +40,10 @@ public:
 };
 
 // ScreenManager owns a small stack of screens.  The top screen is active.
-// max 4 deep — lock -> launcher -> gallery -> viewer is the worst case.
+// Max depth: lock -> launcher -> gallery -> grid -> viewer = 5.
 class ScreenManager {
 public:
-    static constexpr int kMaxDepth = 4;
+    static constexpr int kMaxDepth = 6;
 
     void push(Screen *s);
     void pop();
@@ -57,7 +57,7 @@ public:
     void tick();
 
 private:
-    Screen *stack_[kMaxDepth];
+    Screen *stack_[kMaxDepth];  // NOLINT: size set by kMaxDepth above
     int depth_ = 0;
 
     void redraw();

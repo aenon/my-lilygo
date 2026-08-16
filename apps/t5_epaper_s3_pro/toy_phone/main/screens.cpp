@@ -7,6 +7,7 @@
 
 #include <Arduino.h>
 #include <LittleFS.h>
+#include <esp_heap_caps.h>
 #include <cstring>
 
 namespace screens {
@@ -213,6 +214,8 @@ void GalleryGridScreen::onEnter() {
     int W = epd::kWidth;
     const auto &cat = images::kCategories[category_];
 
+    Serial.printf("[grid] onEnter: category=%d count=%d\n", category_, cat.count);
+
     drawBackButton();
     drawHeader(cat.name);
 
@@ -243,28 +246,39 @@ void GalleryGridScreen::onEnter() {
 
         File f = LittleFS.open(thumbPath, "r");
         if (f) {
-            uint8_t *buf = (uint8_t *)malloc(images::kThumbSize);
+            Serial.printf("[grid] thumb %s: open OK, size=%d\n", thumbPath, f.size());
+            uint8_t *buf = (uint8_t *)heap_caps_malloc(images::kThumbSize, MALLOC_CAP_SPIRAM);
             if (buf) {
                 size_t got = f.read(buf, images::kThumbSize);
                 f.close();
+                Serial.printf("[grid] thumb %s: read %u bytes\n", thumbPath, got);
                 if (got == images::kThumbSize) {
-                    // Thumbnail border
+                    // Thumbnail border (drawn in logical coords — epdiy rotates these)
                     epd::fillRect(x, y, images::kThumbW + 8, images::kThumbH + 8, epd::kWhite);
                     epd::drawHLine(x, y, images::kThumbW + 8);
                     epd::drawHLine(x, y + images::kThumbH + 7, images::kThumbW + 8);
                     epd::drawVLine(x, y, images::kThumbH + 8);
                     epd::drawVLine(x + images::kThumbW + 7, y, images::kThumbH + 8);
 
-                    // Draw thumbnail via epd_draw_rotated_image (handles portrait rotation)
-                    EpdRect area = {.x = x + 4, .y = y + 4,
-                                    .width = images::kThumbW, .height = images::kThumbH};
-                    epd_draw_rotated_image(area, buf, epd::fb);
+                    // Thumbnail is pre-rotated to physical 356x200 layout.
+                    // EPD_ROT_INVERTED_PORTRAIT: phys = (ly, 540 - lx - lw).
+                    // Logical thumbnail is kThumbW(200) wide x kThumbH(356) tall.
+                    // Physical size is swapped: 356 wide x 200 tall.
+                    // physY = 540 - lx - kThumbW (logical width → physical height offset)
+                    int lx = x + 4;
+                    int ly = y + 4;
+                    int physX = ly;
+                    int physY = 540 - lx - images::kThumbW;
+                    EpdRect area = {.x = physX, .y = physY,
+                                    .width = images::kThumbH, .height = images::kThumbW};
+                    epd_copy_to_framebuffer(area, buf, epd::fb);
                 }
                 free(buf);
             } else {
                 f.close();
             }
         } else {
+            Serial.printf("[grid] thumb %s: OPEN FAILED\n", thumbPath);
             // Fallback: empty bordered cell
             epd::fillRect(x, y, images::kThumbW + 8, images::kThumbH + 8, epd::kWhite);
             epd::drawHLine(x, y, images::kThumbW + 8);
@@ -310,17 +324,17 @@ bool GalleryGridScreen::onTouch(int x, int y) {
 // Gallery: full-screen image viewer
 // ===========================================================================
 
-constexpr int kImageSize = 540 * 960 / 2;  // 259,200 bytes (4bpp packed)
+constexpr int kImageSize = 960 * 540 / 2;  // 259,200 bytes (4bpp, physical 960x540)
 
-// Image data is stored pre-rotated in physical 960x540 orientation so we can
-// use the fast epd_copy_to_framebuffer.  But epd_copy_to_framebuffer writes
-// in physical coords and ignores rotation — it would place the image in the
-// wrong orientation.  For portrait we use epd_draw_rotated_image which
-// handles the rotation per-pixel (slower but correct).
+// Images are pre-rotated at build time into the physical framebuffer layout
+// (960x540).  This lets us use epd_copy_to_framebuffer — a simple memcpy-like
+// loop — instead of epd_draw_rotated_image, which does 519,840 per-pixel
+// function calls and causes a watchdog timeout / hard freeze.
 //
-// Images on disk are 540x960 portrait, 4bpp packed (left=low nibble).
-constexpr int kImgLogicalW = 540;
-constexpr int kImgLogicalH = 960;
+// epd_copy_to_framebuffer takes the area in physical coordinates and ignores
+// the epdiy rotation setting.  For a full-screen image: {0, 0, 960, 540}.
+constexpr int kPhysW = 960;
+constexpr int kPhysH = 540;
 
 bool GalleryViewerScreen::loadImage(int category, int index) {
     const auto &cat = images::kCategories[category];
@@ -328,15 +342,17 @@ bool GalleryViewerScreen::loadImage(int category, int index) {
     char path[80];
     snprintf(path, sizeof(path), "%s/%s", cat.dir, cat.files[index]);
 
+    Serial.printf("[viewer] loading %s ...\n", path);
+
     File f = LittleFS.open(path, "r");
     if (!f) {
         Serial.printf("[viewer] failed to open %s\n", path);
         return false;
     }
 
-    uint8_t *buf = (uint8_t *)malloc(kImageSize);
+    uint8_t *buf = (uint8_t *)heap_caps_malloc(kImageSize, MALLOC_CAP_SPIRAM);
     if (!buf) {
-        Serial.println("[viewer] malloc failed");
+        Serial.println("[viewer] PSRAM malloc failed");
         f.close();
         return false;
     }
@@ -350,16 +366,16 @@ bool GalleryViewerScreen::loadImage(int category, int index) {
         return false;
     }
 
-    Serial.printf("[viewer] loaded %s (%u bytes)\n", path, got);
+    Serial.printf("[viewer] read OK, copying to framebuffer ...\n");
 
     epd::fillWhite();
 
-    // Draw the image full-screen.  epd_draw_rotated_image applies the
-    // rotation transform so our 540x960 portrait data maps correctly
-    // into the 960x540 physical framebuffer.
-    EpdRect area = {.x = 0, .y = 0, .width = kImgLogicalW, .height = kImgLogicalH};
-    epd_draw_rotated_image(area, buf, epd::fb);
+    // Fast path: image is already in physical 960x540 layout.
+    // epd_copy_to_framebuffer ignores rotation and writes directly.
+    EpdRect area = {.x = 0, .y = 0, .width = kPhysW, .height = kPhysH};
+    epd_copy_to_framebuffer(area, buf, epd::fb);
 
+    Serial.printf("[viewer] copy done\n");
     free(buf);
     return true;
 }
@@ -367,8 +383,12 @@ bool GalleryViewerScreen::loadImage(int category, int index) {
 void GalleryViewerScreen::onEnter() {
     const auto &cat = images::kCategories[category_];
 
+    Serial.printf("[viewer] onEnter: cat=%d idx=%d heap=%u psram=%u\n",
+                  category_, imageIndex_,
+                  ESP.getFreeHeap(), ESP.getFreePsram());
+
     if (!loadImage(category_, imageIndex_)) {
-        // Fallback: show error text
+        Serial.println("[viewer] loadImage FAILED");
         epd::fillWhite();
         drawBackButton();
         epd::drawCenterText(&FiraSans_20, epd::kWidth / 2, 200, "No Image");
@@ -377,17 +397,16 @@ void GalleryViewerScreen::onEnter() {
         return;
     }
 
-    // Draw nav overlay: back button + arrows
+    Serial.println("[viewer] loadImage OK, drawing overlay");
     drawBackButton();
 
-    // Image counter at top center
     char counter[16];
     snprintf(counter, sizeof(counter), "%d / %d", imageIndex_ + 1, cat.count);
     epd::drawCenterText(&FiraSans_12, epd::kWidth / 2, 30, counter);
 
-    // Bottom hint
     epd::drawCenterText(&FiraSans_12, epd::kWidth / 2, epd::kHeight - 20,
                         "< prev  |  next >");
+    Serial.println("[viewer] onEnter done");
 }
 
 bool GalleryViewerScreen::onTouch(int x, int y) {
@@ -398,27 +417,17 @@ bool GalleryViewerScreen::onTouch(int x, int y) {
     // Left half = prev, right half = next (below the back button zone)
     if (y > 80) {
         if (x < W / 2) {
-            prev();
+            const auto &cat = images::kCategories[category_];
+            imageIndex_ = (imageIndex_ - 1 + cat.count) % cat.count;
+            Serial.printf("[viewer] prev -> %d\n", imageIndex_);
         } else {
-            next();
+            const auto &cat = images::kCategories[category_];
+            imageIndex_ = (imageIndex_ + 1) % cat.count;
+            Serial.printf("[viewer] next -> %d\n", imageIndex_);
         }
-        return true;
+        return true;  // ScreenManager::redraw() will call onEnter() + refresh()
     }
     return false;
-}
-
-void GalleryViewerScreen::next() {
-    const auto &cat = images::kCategories[category_];
-    imageIndex_ = (imageIndex_ + 1) % cat.count;
-    Serial.printf("[viewer] next -> %d\n", imageIndex_);
-    onEnter();
-}
-
-void GalleryViewerScreen::prev() {
-    const auto &cat = images::kCategories[category_];
-    imageIndex_ = (imageIndex_ - 1 + cat.count) % cat.count;
-    Serial.printf("[viewer] prev -> %d\n", imageIndex_);
-    onEnter();
 }
 
 // ===========================================================================

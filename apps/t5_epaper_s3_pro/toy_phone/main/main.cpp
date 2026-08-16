@@ -4,6 +4,7 @@
 #include <Arduino.h>
 #include <Wire.h>
 #include <WiFi.h>
+#include <LittleFS.h>
 #include <time.h>
 
 #include "epd_wrap.h"
@@ -41,6 +42,14 @@ void setup() {
     // Touch must init BEFORE epd — touch.begin() calls Wire.begin().
     touch::init();
     epd::init();
+
+    // LittleFS for gallery images
+    if (!LittleFS.begin(true)) {
+        Serial.println("[fs] LittleFS mount FAILED");
+    } else {
+        Serial.printf("[fs] LittleFS mounted, %u bytes total, %u used\n",
+                      LittleFS.totalBytes(), LittleFS.usedBytes());
+    }
 
     // WiFi for NTP clock (non-blocking — runs in background)
     WiFi.mode(WIFI_STA);

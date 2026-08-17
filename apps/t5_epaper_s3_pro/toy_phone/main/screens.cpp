@@ -16,6 +16,9 @@ namespace screens {
 // Shared layout constants
 // ===========================================================================
 
+// Set to 1 to skip thumbnail loading (diagnostic — draws empty bordered cells).
+#define SKIP_THUMBS 0
+
 // Back button visual indicator (top-left corner).  The tap zone is handled
 // globally by ScreenManager::handleTouch — individual screens just draw the
 // affordance.
@@ -160,6 +163,9 @@ void GalleryGridScreen::onEnter() {
     int W = epd::kWidth;
     int count = images::kImageCount;
 
+    Serial.printf("[grid] onEnter: count=%d, skipThumbs=%d\n", count, SKIP_THUMBS);
+    Serial.flush();
+
     drawBackButton();
     drawHeader("Photos");
 
@@ -171,11 +177,28 @@ void GalleryGridScreen::onEnter() {
     int startX = (W - gridW) / 2;       // 10
     int startY = 110;
 
+#if !SKIP_THUMBS
+    // Reuse a single buffer for all thumbnails to avoid PSRAM fragmentation.
+    static uint8_t *s_thumbBuf = nullptr;
+    if (!s_thumbBuf) {
+        s_thumbBuf = (uint8_t *)heap_caps_malloc(images::kThumbSize, MALLOC_CAP_SPIRAM);
+        Serial.printf("[grid] thumbBuf=%p\n", s_thumbBuf);
+        Serial.flush();
+    }
+#else
+    Serial.printf("[grid] SKIP_THUMBS=1, drawing empty cells only\n");
+    Serial.flush();
+#endif
+
     for (int i = 0; i < count; i++) {
         int col = i % cols;
         int row = i / cols;
         int x = startX + col * cellW;
         int y = startY + row * cellH;
+
+#if !SKIP_THUMBS
+        Serial.printf("[grid] thumb %d at (%d,%d) ... ", i, x, y);
+        Serial.flush();
 
         // Load and draw the thumbnail
         char thumbPath[96];
@@ -190,36 +213,42 @@ void GalleryGridScreen::onEnter() {
 
         bool drewThumb = false;
         File f = LittleFS.open(thumbPath, "r");
-        if (f) {
-            uint8_t *buf = (uint8_t *)heap_caps_malloc(images::kThumbSize, MALLOC_CAP_SPIRAM);
-            if (buf) {
-                size_t got = f.read(buf, images::kThumbSize);
-                f.close();
-                if (got == images::kThumbSize) {
-                    // Thumbnail border (drawn in logical coords — epdiy rotates these)
-                    epd::fillRect(x, y, images::kThumbW + 8, images::kThumbH + 8, epd::kWhite);
-                    epd::drawHLine(x, y, images::kThumbW + 8);
-                    epd::drawHLine(x, y + images::kThumbH + 7, images::kThumbW + 8);
-                    epd::drawVLine(x, y, images::kThumbH + 8);
-                    epd::drawVLine(x + images::kThumbW + 7, y, images::kThumbH + 8);
+        if (f && s_thumbBuf) {
+            size_t got = f.read(s_thumbBuf, images::kThumbSize);
+            f.close();
+            Serial.printf("read=%u ", got);
+            Serial.flush();
+            if (got == images::kThumbSize) {
+                // Thumbnail border (drawn in logical coords — epdiy rotates these)
+                epd::fillRect(x, y, images::kThumbW + 8, images::kThumbH + 8, epd::kWhite);
+                epd::drawHLine(x, y, images::kThumbW + 8);
+                epd::drawHLine(x, y + images::kThumbH + 7, images::kThumbW + 8);
+                epd::drawVLine(x, y, images::kThumbH + 8);
+                epd::drawVLine(x + images::kThumbW + 7, y, images::kThumbH + 8);
 
-                    // Thumbnail is pre-rotated to physical 240x240 layout.
-                    // EPD_ROT_INVERTED_PORTRAIT: phys = (ly, 540 - lx - lw).
-                    int lx = x + 4;
-                    int ly = y + 4;
-                    int physX = ly;
-                    int physY = 540 - lx - images::kThumbW;
-                    EpdRect area = {.x = physX, .y = physY,
-                                    .width = images::kThumbH, .height = images::kThumbW};
-                    epd_copy_to_framebuffer(area, buf, epd::fb);
-                    drewThumb = true;
-                }
-                free(buf);
-            } else {
-                f.close();
+                // Thumbnail is pre-rotated to physical 240x240 layout.
+                // EPD_ROT_INVERTED_PORTRAIT: phys = (ly, 540 - lx - lw).
+                int lx = x + 4;
+                int ly = y + 4;
+                int physX = ly;
+                int physY = 540 - lx - images::kThumbW;
+                EpdRect area = {.x = physX, .y = physY,
+                                .width = images::kThumbH, .height = images::kThumbW};
+                Serial.printf("copy(%d,%d,%d,%d) ", physX, physY,
+                              images::kThumbH, images::kThumbW);
+                Serial.flush();
+                epd_copy_to_framebuffer(area, s_thumbBuf, epd::fb);
+                Serial.printf("done\n");
+                Serial.flush();
+                drewThumb = true;
             }
+        } else {
+            if (f) f.close();
+            Serial.printf("open failed\n");
+            Serial.flush();
         }
         if (!drewThumb) {
+#endif
             // Fallback: empty bordered cell
             epd::fillRect(x, y, images::kThumbW + 8, images::kThumbH + 8, epd::kWhite);
             epd::drawHLine(x, y, images::kThumbW + 8);
@@ -228,8 +257,13 @@ void GalleryGridScreen::onEnter() {
             epd::drawVLine(x + images::kThumbW + 7, y, images::kThumbH + 8);
             epd::drawCenterText(&FiraSans_12, x + images::kThumbW / 2 + 4,
                                 y + images::kThumbH / 2, "?");
+#if !SKIP_THUMBS
         }
+#endif
     }
+
+    Serial.printf("[grid] all thumbnails done\n");
+    Serial.flush();
 
     epd::drawCenterText(&FiraSans_12, W / 2, epd::kHeight - 30,
                         "Tap a picture  |  < back");

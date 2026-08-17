@@ -37,7 +37,9 @@ bool homeButtonPressed();
 
 // Poll for a single tap.  Returns true on the press-down edge (once per tap).
 // Includes a cooldown to reject bounce.  Coordinates in portrait space.
+// If the GT911 home button was pressed, homePressed is set to true and the
+// tap coordinates are still valid (the home key is reported alongside coords).
 // Call this in loop(); it handles edge detection internally.
-bool pollTap(int &x, int &y);
+bool pollTap(int &x, int &y, bool &homePressed);
 
 }  // namespace touch

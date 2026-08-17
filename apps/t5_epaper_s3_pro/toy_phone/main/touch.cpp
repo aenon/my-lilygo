@@ -72,7 +72,8 @@ bool homeButtonPressed() {
     return g_homePressed;
 }
 
-bool pollTap(int &x, int &y) {
+bool pollTap(int &x, int &y, bool &homePressed) {
+    homePressed = false;
     bool pressed = isPressed();
 
     // Edge detection: fire only on press-down
@@ -81,7 +82,11 @@ bool pollTap(int &x, int &y) {
         if (now - g_lastTapMs > 200) {  // 200ms cooldown
             g_lastTapMs = now;
             if (readPoint(x, y)) {
-                Serial.printf("[touch] tap at (%d, %d)\n", x, y);
+                // Capture home button state before it can be overwritten.
+                homePressed = g_homePressed;
+                g_homePressed = false;
+                Serial.printf("[touch] tap at (%d, %d)%s\n", x, y,
+                              homePressed ? " +HOME" : "");
                 g_wasPressed = true;
                 return true;
             }

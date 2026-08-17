@@ -18,9 +18,9 @@ constexpr int kFullW = 540;
 constexpr int kFullH = 960;
 constexpr int kFullSize = kFullW * kFullH / 2;  // 259,200 bytes
 
-constexpr int kThumbW = 200;
-constexpr int kThumbH = 356;
-constexpr int kThumbSize = kThumbW * kThumbH / 2;  // 35,600 bytes
+constexpr int kThumbW = 240;
+constexpr int kThumbH = 240;
+constexpr int kThumbSize = kThumbW * kThumbH / 2;  // 28,800 bytes
 
 constexpr const char *kDir = "/images";
 

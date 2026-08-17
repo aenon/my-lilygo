@@ -13,6 +13,7 @@ class LockScreen : public ui::Screen {
 public:
     void onEnter() override;
     bool onTouch(int x, int y) override;
+    bool onHomeButton() override { return false; }  // no home on lock screen
     const char *name() const override { return "Lock"; }
 };
 

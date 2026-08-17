@@ -16,9 +16,9 @@ namespace screens {
 // Shared layout constants
 // ===========================================================================
 
-// Back button: top-left 80x80 tap zone on every screen (except lock/launcher).
-static constexpr ui::TapZone kBackZone = {0, 0, 80, 80};
-
+// Back button visual indicator (top-left corner).  The tap zone is handled
+// globally by ScreenManager::handleTouch — individual screens just draw the
+// affordance.
 static void drawBackButton() {
     epd::drawCenterText(&FiraSans_20, 40, 50, "<");
     epd::drawCenterText(&FiraSans_12, 40, 72, "back");
@@ -163,12 +163,12 @@ void GalleryGridScreen::onEnter() {
     drawBackButton();
     drawHeader("Photos");
 
-    // 2-column thumbnail grid.  Each cell is kThumbW x kThumbH + borders.
+    // 2-column x 3-row thumbnail grid.  Each cell is 240x240 + 20px padding.
     int cols = 2;
-    int cellW = images::kThumbW + 20;
-    int cellH = images::kThumbH + 20;
-    int gridW = cols * cellW;
-    int startX = (W - gridW) / 2;
+    int cellW = images::kThumbW + 20;   // 260
+    int cellH = images::kThumbH + 20;   // 260
+    int gridW = cols * cellW;           // 520
+    int startX = (W - gridW) / 2;       // 10
     int startY = 110;
 
     for (int i = 0; i < count; i++) {
@@ -233,7 +233,6 @@ void GalleryGridScreen::onEnter() {
 }
 
 bool GalleryGridScreen::onTouch(int x, int y) {
-    if (kBackZone.hit(x, y)) return true;  // pop
 
     int cols = 2;
     int cellW = images::kThumbW + 20;
@@ -335,7 +334,6 @@ void GalleryViewerScreen::onEnter() {
 bool GalleryViewerScreen::onTouch(int x, int y) {
     int W = epd::kWidth;
 
-    if (kBackZone.hit(x, y)) return true;  // pop
 
     if (y > 80) {
         if (x < W / 2) {
@@ -350,12 +348,12 @@ bool GalleryViewerScreen::onTouch(int x, int y) {
 
 void GalleryViewerScreen::next() {
     imageIndex_ = (imageIndex_ + 1) % images::kImageCount;
-    onEnter();
+    // Don't call onEnter() here — ScreenManager::redraw() will do it.
 }
 
 void GalleryViewerScreen::prev() {
     imageIndex_ = (imageIndex_ - 1 + images::kImageCount) % images::kImageCount;
-    onEnter();
+    // Don't call onEnter() here — ScreenManager::redraw() will do it.
 }
 
 // ===========================================================================
@@ -373,6 +371,7 @@ static constexpr char kDialKeys[4][3] = {
 void PhoneScreen::pressKey(char c) {
     if (dialedLen_ < (int)sizeof(dialed_) - 1) {
         dialed_[dialedLen_++] = c;
+        dialed_[dialedLen_] = '\0';
     }
     Serial.printf("[phone] dialed: %s\n", dialed_);
 }
@@ -482,7 +481,6 @@ bool PhoneScreen::onTouch(int x, int y) {
 
     if (calling_) {
         // Any tap on the call screen (except back) hangs up
-        if (kBackZone.hit(x, y)) return true;  // pop
         // Check hang-up button area (large zone in lower half)
         if (y > 400) {
             endCall();
@@ -491,7 +489,6 @@ bool PhoneScreen::onTouch(int x, int y) {
         return false;
     }
 
-    if (kBackZone.hit(x, y)) return true;  // pop
 
     // Dial pad keys
     int cols = 3;
@@ -584,7 +581,6 @@ void ClockScreen::onEnter() {
 }
 
 bool ClockScreen::onTouch(int x, int y) {
-    if (kBackZone.hit(x, y)) return true;
     return false;
 }
 
@@ -659,7 +655,6 @@ void SettingsScreen::onEnter() {
 }
 
 bool SettingsScreen::onTouch(int x, int y) {
-    if (kBackZone.hit(x, y)) return true;
 
     int rowH = 80;
     int rowW = epd::kWidth - 80;

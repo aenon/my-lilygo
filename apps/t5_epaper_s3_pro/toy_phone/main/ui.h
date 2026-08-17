@@ -29,8 +29,9 @@ public:
     virtual bool onTouch(int x, int y) = 0;
 
     // Optional: called when the hardware home button is pressed.
-    // Default: return true to trigger a pop.
-    virtual bool onHomeButton() { return false; }
+    // Default: return true to go home (pop to launcher).
+    // Lock screen overrides to return false (home does nothing on lock).
+    virtual bool onHomeButton() { return true; }
 
     // Optional: called periodically in loop() (every ~1s).
     // Return true to trigger a refresh.
@@ -40,25 +41,33 @@ public:
 };
 
 // ScreenManager owns a small stack of screens.  The top screen is active.
-// Max depth: lock -> launcher -> gallery -> grid -> viewer = 5.
+// Depth: 0=lock, 1=launcher, 2+=app screens.
 class ScreenManager {
 public:
     static constexpr int kMaxDepth = 6;
 
     void push(Screen *s);
     void pop();
-    void home();  // pop all the way to index 1 (launcher)
+    void home();  // pop all the way to launcher (depth 2)
 
-    Screen *current() const { return stack_[depth_ - 1]; }
+    Screen *current() const { return depth_ > 0 ? stack_[depth_ - 1] : nullptr; }
     int depth() const { return depth_; }
 
     void handleTouch(int x, int y);
     void handleHomeButton();
     void tick();
 
+    // Call after any refresh to suppress queued touches.  Prevents taps
+    // made during the ~2s EPD refresh from firing on the new screen.
+    void suppressTouch(uint32_t ms);
+
 private:
-    Screen *stack_[kMaxDepth];  // NOLINT: size set by kMaxDepth above
+    Screen *stack_[kMaxDepth];
     int depth_ = 0;
+
+    // Global back zone — top-left corner.  Only active when deeper than the
+    // launcher (depth > 2), so lock and launcher don't accidentally pop.
+    static constexpr TapZone kBackZone = {0, 0, 100, 80};
 
     void redraw();
 };

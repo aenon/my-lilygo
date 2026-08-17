@@ -62,45 +62,42 @@ void setup() {
 
 void loop() {
     int x, y;
+    bool homePressed;
 
-    if (touch::pollTap(x, y)) {
-        if (!g_unlocked) {
+    if (touch::pollTap(x, y, homePressed)) {
+        // Home button takes priority — go to launcher from anywhere
+        if (homePressed && g_unlocked) {
+            g_mgr.handleHomeButton();
+        } else if (!g_unlocked) {
             g_unlocked = true;
             g_mgr.push(&s_launcher);
-        } else {
+        } else if (g_mgr.current()) {
             ui::Screen *cur = g_mgr.current();
 
-        if (cur == &s_launcher) {
-            s_launcher.tappedIcon_ = -1;
-            g_mgr.handleTouch(x, y);
-            if (s_launcher.tappedIcon_ >= 0) {
-                switch (s_launcher.tappedIcon_) {
-                    case 0: g_mgr.push(&s_phone);    break;
-                    case 1: g_mgr.push(&s_grid);     break;
-                    case 2: g_mgr.push(&s_clock);    break;
-                    case 3: g_mgr.push(&s_settings); break;
+            if (cur == &s_launcher) {
+                s_launcher.tappedIcon_ = -1;
+                g_mgr.handleTouch(x, y);
+                if (s_launcher.tappedIcon_ >= 0) {
+                    switch (s_launcher.tappedIcon_) {
+                        case 0: g_mgr.push(&s_phone);    break;
+                        case 1: g_mgr.push(&s_grid);     break;
+                        case 2: g_mgr.push(&s_clock);    break;
+                        case 3: g_mgr.push(&s_settings); break;
+                    }
                 }
+            } else if (cur == &s_grid) {
+                s_grid.tappedImage_ = -1;
+                g_mgr.handleTouch(x, y);
+                if (s_grid.tappedImage_ >= 0) {
+                    delete s_viewer;
+                    s_viewer = new screens::GalleryViewerScreen(s_grid.tappedImage_);
+                    if (s_viewer) {
+                        g_mgr.push(s_viewer);
+                    }
+                }
+            } else {
+                g_mgr.handleTouch(x, y);
             }
-        } else if (cur == &s_grid) {
-            s_grid.tappedImage_ = -1;
-            g_mgr.handleTouch(x, y);
-            if (s_grid.tappedImage_ >= 0) {
-                delete s_viewer;
-                s_viewer = new screens::GalleryViewerScreen(s_grid.tappedImage_);
-                g_mgr.push(s_viewer);
-            }
-        } else {
-            g_mgr.handleTouch(x, y);
-        }
-        }  // else (unlocked)
-    }
-
-    // Handle hardware home button
-    if (touch::isPressed() && g_unlocked) {
-        int hx, hy;
-        touch::readPoint(hx, hy);
-        if (touch::homeButtonPressed()) {
-            g_mgr.handleHomeButton();
         }
     }
 

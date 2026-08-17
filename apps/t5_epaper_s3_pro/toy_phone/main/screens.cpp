@@ -188,6 +188,7 @@ void GalleryGridScreen::onEnter() {
         snprintf(thumbPath, sizeof(thumbPath), "%s/thumb_%s.epd",
                  images::kDir, thumbName);
 
+        bool drewThumb = false;
         File f = LittleFS.open(thumbPath, "r");
         if (f) {
             uint8_t *buf = (uint8_t *)heap_caps_malloc(images::kThumbSize, MALLOC_CAP_SPIRAM);
@@ -202,7 +203,7 @@ void GalleryGridScreen::onEnter() {
                     epd::drawVLine(x, y, images::kThumbH + 8);
                     epd::drawVLine(x + images::kThumbW + 7, y, images::kThumbH + 8);
 
-                    // Thumbnail is pre-rotated to physical 356x200 layout.
+                    // Thumbnail is pre-rotated to physical 240x240 layout.
                     // EPD_ROT_INVERTED_PORTRAIT: phys = (ly, 540 - lx - lw).
                     int lx = x + 4;
                     int ly = y + 4;
@@ -211,12 +212,14 @@ void GalleryGridScreen::onEnter() {
                     EpdRect area = {.x = physX, .y = physY,
                                     .width = images::kThumbH, .height = images::kThumbW};
                     epd_copy_to_framebuffer(area, buf, epd::fb);
+                    drewThumb = true;
                 }
                 free(buf);
             } else {
                 f.close();
             }
-        } else {
+        }
+        if (!drewThumb) {
             // Fallback: empty bordered cell
             epd::fillRect(x, y, images::kThumbW + 8, images::kThumbH + 8, epd::kWhite);
             epd::drawHLine(x, y, images::kThumbW + 8);

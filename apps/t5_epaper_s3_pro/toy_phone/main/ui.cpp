@@ -67,6 +67,7 @@ void ScreenManager::handleTouch(int x, int y) {
 
 void ScreenManager::handleHomeButton() {
     if (depth_ == 0) return;
+    if (millis() < g_suppressUntil) return;  // same suppression as touch
     if (current()->onHomeButton()) {
         home();
     }

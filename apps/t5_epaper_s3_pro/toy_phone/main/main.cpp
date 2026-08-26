@@ -33,13 +33,29 @@ bool g_unlocked = false;
 }  // namespace
 
 void setup() {
+    // Release GPIO holds from deep sleep / previous boot (factory example does this)
+    gpio_hold_dis((gpio_num_t)9);   // GT911 RST
+    gpio_hold_dis((gpio_num_t)3);   // GT911 IRQ
+    gpio_deep_sleep_hold_dis();
+
     Serial.begin(115200);
     delay(500);
     Serial.println("\n=== Toy Phone ===");
 
-    // Touch must init BEFORE epd — touch.begin() calls Wire.begin().
-    touch::init();
+    // Hardware reset the GT911 before the EPD takes over GPIO 9 (D8).
+    // The GT911 needs a clean reset to enter scanning mode.
+    pinMode(9, OUTPUT);
+    digitalWrite(9, LOW);
+    delay(10);
+    digitalWrite(9, HIGH);
+    delay(100);  // GT911 boot time after reset
+
+    // Wire must init BEFORE epd — otherwise epdiy installs its own I2C
+    // driver and breaks Wire.  The GT911 init comes AFTER epd so its I2C
+    // state isn't disturbed by the EPD's driver install attempt.
+    Wire.begin(39, 40);
     epd::init();
+    touch::init();
 
     // LittleFS for gallery images
     if (!LittleFS.begin(true)) {
@@ -64,7 +80,20 @@ void loop() {
     int x, y;
     bool homePressed;
 
+    // Heartbeat every 5s to confirm the device is alive
+    static uint32_t lastHeartbeat = 0;
+    if (millis() - lastHeartbeat > 5000) {
+        lastHeartbeat = millis();
+        Serial.printf("[hb] alive, depth=%d, screen='%s'\n",
+                      g_mgr.depth(),
+                      g_mgr.current() ? g_mgr.current()->name() : "?");
+        Serial.flush();
+    }
+
     if (touch::pollTap(x, y, homePressed)) {
+        Serial.printf("[main] tap detected at (%d,%d), home=%d, unlocked=%d, depth=%d\n",
+                      x, y, homePressed, g_unlocked, g_mgr.depth());
+        Serial.flush();
         // Home button takes priority — go to launcher from anywhere
         if (homePressed && g_unlocked) {
             g_mgr.handleHomeButton();
@@ -102,6 +131,18 @@ void loop() {
     }
 
     g_mgr.tick();
+
+    // Periodic GT911 health check — the EPD's GPIO 9 (D8) activity can reset
+    // or sleep the GT911.  Check if it's alive and re-init if it stops
+    // detecting touches.
+    static uint32_t lastHealthCheck = 0;
+    if (millis() - lastHealthCheck > 3000) {
+        lastHealthCheck = millis();
+        if (!touch::healthCheck()) {
+            Serial.println("[main] GT911 unhealthy, re-initializing");
+            touch::reinit();
+        }
+    }
 
     // Maintain WiFi + NTP in background
     if (g_unlocked && WiFi.status() == WL_CONNECTED) {

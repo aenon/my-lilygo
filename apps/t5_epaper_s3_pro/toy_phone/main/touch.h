@@ -21,6 +21,13 @@ constexpr int kRstPin = 9;
 // Returns true on success.
 bool init();
 
+// Check if the GT911 is still responding on I2C.  Returns true if the chip
+// is alive.  If it returns false, call reinit() to try to recover.
+bool healthCheck();
+
+// Re-initialize the GT911.  Call this if healthCheck() fails.
+bool reinit();
+
 // Non-blocking: returns true if a finger is currently on the screen.
 // This is a cheap digitalRead — no I2C traffic.
 bool isPressed();

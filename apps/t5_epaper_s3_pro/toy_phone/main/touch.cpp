@@ -19,7 +19,15 @@ static constexpr bool kSwapXY  = false;
 static constexpr bool kMirrorX = false;
 static constexpr bool kMirrorY = false;
 
+// Use the RST pin like the factory example does.  GPIO 9 is shared with
+// the EPD data bus (D8), but the factory example works — the GT911 only
+// needs the RST pin during init to set the I2C address.  After init, the
+// EPD's GPIO 9 toggling doesn't affect the GT911's operation because the
+// GT911 is already configured and running.
 bool init() {
+    // Release any GPIO hold on the RST pin (from deep sleep or boot)
+    gpio_hold_dis((gpio_num_t)kRstPin);
+
     g_touch.setPins(kRstPin, kIrqPin);
 
     if (!g_touch.begin(Wire, GT911_SLAVE_ADDRESS_L, 39, 40)) {
@@ -53,7 +61,11 @@ bool init() {
 }
 
 bool isPressed() {
-    return g_touch.isPressed();
+    // Not used — pollTap calls getPoint() directly which reads coordinates
+    // AND clears the buffer in one I2C transaction.  This avoids the IRQ
+    // pin entirely (GPIO 3 can be unreliable when the EPD drives GPIO 9,
+    // which is shared between GT911 RST and EPD D8).
+    return false;
 }
 
 bool readPoint(int &x, int &y) {
@@ -72,24 +84,67 @@ bool homeButtonPressed() {
     return g_homePressed;
 }
 
+bool healthCheck() {
+    // Try to read the chip ID — a quick I2C read that should always work
+    // if the GT911 is alive.  Returns 911 on success.
+    uint32_t id = g_touch.getChipID();
+    bool ok = (id == 911);
+    if (!ok) {
+        Serial.printf("[touch] health check FAILED (chipID=%lu)\n", id);
+    }
+    return ok;
+}
+
+bool reinit() {
+    Serial.println("[touch] re-initializing GT911 (hardware reset)...");
+    // Hardware reset: toggle RST pin (GPIO 9).  This may glitch the EPD
+    // momentarily, but the next refresh will recover.
+    pinMode(kRstPin, OUTPUT);
+    digitalWrite(kRstPin, LOW);
+    delay(10);
+    digitalWrite(kRstPin, HIGH);
+    delay(100);  // GT911 needs ~50-100ms to boot after reset
+    return init();
+}
+
 bool pollTap(int &x, int &y, bool &homePressed) {
     homePressed = false;
-    bool pressed = isPressed();
+
+    // Read the GT911 directly via I2C.  getPoint() reads coordinates AND
+    // clears the buffer in one transaction.  This avoids the IRQ pin entirely
+    // (GPIO 3 can be unreliable when the EPD drives GPIO 9, which is shared
+    // between GT911 RST and EPD D8).
+    int16_t tx[1], ty[1];
+    g_homePressed = false;
+    uint8_t n = g_touch.getPoint(tx, ty, 1);
+    bool pressed = (n > 0);
+
+    // Log raw GT911 state every 2 seconds for debugging
+    static uint32_t lastLog = 0;
+    if (millis() - lastLog > 2000) {
+        lastLog = millis();
+        Serial.printf("[touch] n=%d pressed=%d wasPressed=%d irq=%d chipID=%lu\n",
+                      n, pressed, g_wasPressed, digitalRead(kIrqPin),
+                      g_touch.getChipID());
+        Serial.flush();
+    }
+
+    if (pressed) {
+        // Capture home button state (set by the callback inside getPoint).
+        homePressed = g_homePressed;
+        x = tx[0];
+        y = ty[0];
+    }
 
     // Edge detection: fire only on press-down
     if (pressed && !g_wasPressed) {
         uint32_t now = millis();
         if (now - g_lastTapMs > 200) {  // 200ms cooldown
             g_lastTapMs = now;
-            if (readPoint(x, y)) {
-                // Capture home button state before it can be overwritten.
-                homePressed = g_homePressed;
-                g_homePressed = false;
-                Serial.printf("[touch] tap at (%d, %d)%s\n", x, y,
-                              homePressed ? " +HOME" : "");
-                g_wasPressed = true;
-                return true;
-            }
+            Serial.printf("[touch] tap at (%d, %d)%s\n", x, y,
+                          homePressed ? " +HOME" : "");
+            g_wasPressed = true;
+            return true;
         }
     }
 

@@ -41,10 +41,10 @@ void ScreenManager::home() {
 
 void ScreenManager::suppressTouch(uint32_t ms) {
     g_suppressUntil = millis() + ms;
-    // Drain any pending GT911 touch data so stale coordinates don't leak
-    // through when suppression expires.
-    int dx, dy;
-    touch::readPoint(dx, dy);
+    // Don't call touch::readPoint here — draining the GT911 buffer mid-touch
+    // confuses the touch controller and leaves the IRQ pin stuck LOW.
+    // The suppression window alone is enough: pollTap's edge detection
+    // will reject the held finger, and the next fresh tap will fire normally.
 }
 
 void ScreenManager::handleTouch(int x, int y) {

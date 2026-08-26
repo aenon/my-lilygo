@@ -19,3 +19,7 @@ vendor/
 # secrets.example.h files are committed.
 secrets.h
 **/secrets.h
+
+# Generated e-paper image data (built from images/ sources via
+# scripts/svg-to-epaper.py).  Upload to LittleFS with `pio run -t uploadfs`.
+data/

@@ -25,7 +25,11 @@ constexpr uint32_t kStaleMs = 20000;
 TFT_eSPI tft;
 
 struct Stats {
-    char     time[8] = "--:--";
+    // Wall clock runs locally: host pushes T=HH:MM (24h; seconds optional,
+    // assumed :00), firmware ticks with millis() and re-calibrates on every
+    // push. No RTC/NTP needed.
+    long     baseSec  = -1;    // seconds since midnight at last T= push
+    uint32_t baseMillis = 0;   // millis() when that push was parsed
     int      cpu     = -1;
     int      mem     = -1;
     float    load    = -1.0f;
@@ -61,9 +65,14 @@ void applyToken(const char *tok) {
     }
     const char *v = tok + 2;
     switch (tok[0]) {
-    case 'T':
-        snprintf(g_stats.time, sizeof(g_stats.time), "%s", v);
+    case 'T': {
+        int h = 0, m = 0, s = 0;
+        if (sscanf(v, "%d:%d:%d", &h, &m, &s) >= 2) {
+            g_stats.baseSec = (long)h * 3600 + (long)m * 60 + s;
+            g_stats.baseMillis = millis();
+        }
         break;
+    }
     case 'C':
         g_stats.cpu = atoi(v);
         break;
@@ -135,6 +144,19 @@ void drawBar(int y, int pct, uint16_t color) {
     }
 }
 
+// Current wall-clock minute (locally ticked), or -1 if no T= received yet.
+int currentMinute() {
+    if (g_stats.baseSec < 0) {
+        return -1;
+    }
+    long nowSec = g_stats.baseSec + (long)((millis() - g_stats.baseMillis) / 1000);
+    nowSec %= 86400;
+    if (nowSec < 0) {
+        nowSec += 86400;
+    }
+    return (int)(nowSec / 60);
+}
+
 void paint() {
     tft.fillScreen(TFT_BLACK);
     const int cx = tft.width() / 2;
@@ -142,11 +164,16 @@ void paint() {
     uint16_t dim = stale ? TFT_DARKGREY : TFT_WHITE;
 
     // Time
+    char timeStr[8] = "--:--";
+    int minute = currentMinute();
+    if (minute >= 0) {
+        snprintf(timeStr, sizeof(timeStr), "%02d:%02d", minute / 60, minute % 60);
+    }
     tft.setTextDatum(MC_DATUM);
     tft.setTextFont(4);
     tft.setTextSize(1);
     tft.setTextColor(stale ? TFT_DARKGREY : TFT_CYAN, TFT_BLACK);
-    tft.drawString(g_stats.time, cx, 15);
+    tft.drawString(timeStr, cx, 15);
 
     // Load line
     char buf[40];
@@ -252,11 +279,14 @@ void loop() {
     }
 
     static bool s_wasStale = false;
+    static int  s_lastMinute = -2;
     bool stale = (millis() - g_stats.updatedAt) > kStaleMs;
+    int  minute = currentMinute();
 
-    if (g_dirty || stale != s_wasStale) {
+    if (g_dirty || stale != s_wasStale || minute != s_lastMinute) {
         g_dirty = false;
         s_wasStale = stale;
+        s_lastMinute = minute;
         paint();
     }
 
